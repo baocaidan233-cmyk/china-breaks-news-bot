@@ -1,0 +1,50 @@
+{
+  "ccp_leadership": [
+    ["Xi Jinping", "Xi"],
+    ["Li Qiang", null],
+    ["Zhao Leji", "Zhao"],
+    ["Wang Huning", null],
+    ["Cai Qi", "Cai"],
+    ["Ding Xuexiang", "Ding"],
+    ["Li Xi", null],
+    ["Ma Xingrui", "Ma"],
+    ["Wang Yi", null],
+    ["Yin Li", "Yin"],
+    ["Zhang Youxia", null],
+    ["Zhang Guoqing", null],
+    ["Li Ganjie", null],
+    ["Li Shulei", null],
+    ["Li Hongzhong", null],
+    ["Chen Wenqing", null],
+    ["Chen Jining", null],
+    ["Chen Min'er", null],
+    ["Yuan Jiajun", "Yuan"],
+    ["He Lifeng", null],
+    ["He Weidong", null],
+    ["Liu Guozhong", "Liu"],
+    ["Huang Kunming", "Huang"],
+    ["Shen Yiqin", "Shen"],
+    ["Chen Yixin", null]
+  ],
+  "state_media": [
+    ["Xinhua News Agency", "Xinhua"],
+    ["China Central Television", "CCTV"],
+    ["China Global Television Network", "CGTN"],
+    ["Global Times", null],
+    ["People's Daily", null],
+    ["China Daily", null]
+  ],
+  "notable": [
+    ["Xi Jinping", "Xi"],
+    ["Wang Qishan", null],
+    ["Han Zheng", "Han"],
+    ["Vladimir Putin", "Putin"],
+    ["Donald Trump", "Trump"],
+    ["Viktor Orban", "Orban"],
+    ["Luiz Inacio Lula da Silva", "Lula"],
+    ["Lai Ching-te", "Lai"]
+  ],
+  "aliases": [
+    "William Lai"
+  ]
+}

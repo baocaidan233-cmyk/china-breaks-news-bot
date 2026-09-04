@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+data/
+logs/
+.DS_Store
+.venv/
+._*
+n8n_chinabreaks_pipelines/

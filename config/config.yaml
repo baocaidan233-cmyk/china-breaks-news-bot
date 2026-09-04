@@ -1,0 +1,153 @@
+notion:
+  source_db_id: ""       # env: NOTION_SOURCE_DB_ID — real id 22e16dc99f32808fb86ec094a71fe7af ("rss_n8n_chinabreaks_to_notion"), see README; left blank, set via .env
+  candidate_db_id: ""    # env: NOTION_CANDIDATE_DB_ID — real id 22e16dc99f32808788e8dec5cd9107ca ("Chinadaily_news_Channel" / "china_breaks_Channel"), shared by ingestion + publish cycles, see README; left blank, set via .env
+  hot_topics_db_id: ""    # env: NOTION_HOT_TOPICS_DB_ID — shared "热点标记" table (same mechanism AM1ST and sibling bots already use), manual breaking-news flag, see core/hot_topics.py
+  alert_user_id: ""       # env: NOTION_ALERT_USER_ID — @mentioned on cookie/extraction failures
+  channel_name: "ChinaBreaks"  # this bot's tag in the shared candidate-pool database's channel_name select column (real confirmed value) — written on every row this bot creates, filtered on by every publish-side query
+  # Source props: In_use_2 is CONFIRMED against the real live "rss_n8n_chinabreaks_to_notion"
+  # database (2026-09-04). Every other source prop below is an UNVERIFIED
+  # placeholder carried over from AM1ST's own source-table column names —
+  # re-check against a live schema read before this bot's first real run.
+  # Candidate props: title/url/author/description/published_at/post_content/
+  # llm_score/llm_comment/content/url_hash/send_status/channel_name are
+  # CONFIRMED against the real candidate-pool database's schema (read
+  # directly from the old n8n "Create a database page" node, 2026-09-04).
+  # heat_score/event_first_seen_at/is_hot are NOT in that confirmed schema —
+  # see core/config.py's NotionCandidateProps docstring; add these three
+  # columns (or re-map these fields to existing ones) before a real run.
+  source_props:
+    in_use: "In_use_2"
+    feed_url: "RSS"
+    name: "Name"
+    cookie: "cookie"
+    domain: "website"
+  candidate_props:
+    title: "Title"
+    url: "url"
+    author: "author"
+    description: "description"
+    published_at: "published_at"
+    post_content: "post_content"
+    llm_score: "llm_score"
+    llm_comment: "llm_comment"
+    content: "content"
+    url_hash: "url_hash"
+    send_status: "send_status"
+    channel_name: "channel_name"
+    heat_score: "heat_score"
+    event_first_seen_at: "event_first_seen_at"
+    is_hot: "is_hot"
+  hot_topics_props:
+    name: "Name"
+    channel: "Channel"
+    active: "In_Use"
+
+redis:
+  # Real production URL-hash dedup key prefix already in use by the live
+  # n8n system, confirmed 2026-09-04 — deliberately reused, not a fresh
+  # namespace, so this bot recognizes URLs the still-running old system
+  # already claimed the moment it starts running.
+  key_prefix: "newsroom:chinabreaks:url_hash:"
+  ttl_seconds: 864000  # 10 days — standing dedup architecture default, unchanged from AM1ST
+
+openai:
+  chat_model: "gpt-4o-mini"  # every OpenAI-backed call — Writer, Scorer, PriorityRanker, EventVerifier — this project's standing "gpt-4o-mini everywhere" rule
+  embedding_model: "text-embedding-3-small"
+  scoring_prompt_file: "prompts/scoring_prompt.txt"
+  content_gen_prompt_file: "prompts/content_gen_prompt.txt"
+  # Ingestion-side AI score gate — real calibrated value from the old n8n
+  # system's global_config node (effectively "score > 3", i.e. minimum
+  # passing score of 4) — much looser than AM1ST's own >=5 gate.
+  score_threshold: 4.0
+
+dedup:
+  semantic_threshold: 0.8  # cosine similarity, both intra-batch and cross-cycle layers — standing dedup architecture default, unchanged from AM1ST, not independently recalibrated for China Breaks yet
+
+entity_verifier:
+  hub_event_count_threshold: 2   # shared token only counts as evidence if it's been the core of fewer than this many past events
+  pair_cooccur_max: 1            # two hub tokens together still count if this exact pair has co-occurred in at most this many past events
+  min_doc_freq_for_core: 2       # a token needs >=this many of an event's own articles to join its persisted core_entities
+  hub_key_prefix: "chinabreaks:hub:"
+  same_event_prompt_file: "prompts/same_event_prompt.txt"
+  update_subtype_prompt_file: "prompts/update_subtype_prompt.txt"
+  related_event_prompt_file: "prompts/related_event_prompt.txt"
+  log_path: "logs/event_identity_decisions.jsonl"
+  top_k: 5  # verify up to this many historical event candidates, not just the top-1 cosine match — see core/config.py
+  subtype_restatement_weight: 0.2
+  subtype_corroboration_weight: 1.0
+  subtype_core_update_weight: 1.5
+  restatement_cosine_floor: 0.92  # AM1ST's own audited value, inherited as a starting point
+  no_overlap_llm_review_floor: 0.75  # AM1ST's own audited value, inherited as a starting point
+  weighted_overlap_threshold: 0.15  # IDF-weighted keyword overlap floor for the FAIL_OPEN branch — ported from North_Korea_News by way of AM1ST, not yet independently validated on chinabreaks_events data
+
+hot_topics:
+  channel_name: "ChinaBreaks"  # this bot's own tag in the shared Notion table's Channel multi-select column
+  match_threshold: 0.5       # cosine floor for "this candidate is about a currently-flagged hot topic" — AM1ST's own calibrated value (live embedding tests), inherited as a starting point, not independently validated against real chinabreaks_events data
+  ttl_hours: 24               # both the Notion flag's own freshness window and how long a matched event stays "hot"
+  fast_poll_seconds: 180      # main_publish.py's short-poll interval while an unpublished is_hot candidate exists
+
+heat:
+  related_threshold: 0.6      # cosine floor for "same event, different source" — below dedup.semantic_threshold
+  window_hours: 240           # 10 days — matches redis.ttl_seconds' convention, wider than qdrant.cross_cycle_window_hours (72h) so multi-day events don't fragment
+  # Domain adaptation: AM1ST's own major_outlets list is US-domestic wire/TV
+  # outlets (Reuters/CNN/Fox News/...), not particularly relevant to a
+  # CCP-exposure feed. Replaced with the non-CCP outlets this project's own
+  # content_gen_prompt.txt already names as trusted sources for China
+  # coverage — not independently calibrated, a reasonable starting point.
+  major_outlets:
+    - "Reuters"
+    - "AFP"
+    - "DW"
+    - "Nikkei"
+    - "Kyodo"
+    - "VOA"
+    - "RFA"
+    - "CNA"
+  major_outlet_weight: 2.0    # vs 1.0 for any other corroborating source
+
+qdrant:
+  collection: "chinabreaks_embeddings"           # ingestion-side cross-cycle dedup cache (title+description)
+  posted_collection: "chinabreaks_posting_news_embedding"  # publish-side "already posted" cache (post_content)
+  events_collection: "chinabreaks_events"        # event aggregation — groups of points per underlying event, see HeatConfig/EventStore
+  cross_cycle_window_hours: 72
+  cleanup_retention_days: 10  # for the separate, not-yet-built daily cleanup job
+  timeout_seconds: 15  # AsyncQdrantClient has no timeout by default — AM1ST hit a real stalled-request hang without this; ported as a preventive default
+
+rss:
+  # Fetch caps — new versus AM1ST, which reads every entry from every
+  # in_use feed with no limit. Real calibrated values from the old n8n
+  # system's global_config node.
+  max_items_per_feed: 150
+  max_total_items: 200
+
+extraction:
+  timeout_seconds: 20
+  min_text_length: 200
+
+gettr:
+  api_url: "https://gettr.com/api/u/post"
+
+publish:
+  interval_seconds: 1800       # 30 minutes — deployment note: stagger this process's start time to land near :02/:32 past the hour (vs AM1ST's :17/:47) if ever run alongside it on the same host; not anchored in code today, see core/config.py
+  # candidate_min_score/weekday_min_score/weekend_min_score are shifted
+  # down by 1 point from AM1ST's own 5.0/6.0/5.0 — an internal-consistency
+  # fix, not an independently confirmed real value, since this project's
+  # own ingestion score_threshold (4.0) is 1 point lower than AM1ST's
+  # (5.0) — see core/config.py's PublishConfig docstring.
+  candidate_min_score: 4.0     # Notion query floor (lower of weekday/weekend below)
+  weekday_min_score: 5.0
+  weekend_min_score: 4.0
+  candidate_max_age_hours: 12
+  fresh_hours: 4
+  batch_min: 3
+  batch_max: 10
+  priority_rank_prompt_file: "prompts/priority_rank_prompt.txt"
+  posted_dedup_window_hours: 240  # 10 days, matches heat.window_hours
+  posted_dedup_threshold: 0.70  # stricter than ingestion's 0.8 — deliberate, fully-autonomous posting errs toward under-posting
+
+# Candidate freshness window — real calibrated value from the old n8n
+# system's global_config node (~6 hours), vs AM1ST's own 3h.
+max_publish_age_hours: 6
+poll_interval_seconds: 600  # 10 minutes, matches AM1ST's own cadence
+cycle_timeout_seconds: 540  # 9 min — hard-cuts a stuck cycle so the next one always starts on schedule; AM1ST's own real-world-derived value, inherited
+alert_cooldown_seconds: 21600  # 6h — don't re-@mention for a still-broken source every cycle

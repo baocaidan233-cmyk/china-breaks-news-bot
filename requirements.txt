@@ -1,0 +1,22 @@
+httpx>=0.27
+pydantic>=2.6
+pyyaml>=6.0
+python-dotenv>=1.0
+feedparser>=6.0
+python-dateutil>=2.9
+openai>=1.30
+qdrant-client>=1.9
+redis>=5.0
+trafilatura>=2.0
+lxml_html_clean>=0.4
+langdetect>=1.0.9
+spacy>=3.7
+# after installing requirements: python -m spacy download en_core_web_sm
+# (core/event_identity.py's entity_tokens() needs this model on disk — not
+# pip-installable as a plain dependency, must be fetched separately, on
+# both this machine and the VM)
+# playwright removed 2026-09-04 — agents/extractor.py's browser-render
+# fallback now goes through the shared render service (core/
+# render_client.py, a plain httpx POST), not a Playwright instance this
+# process launches itself. The actual Chromium dependency now lives only
+# in that separate, shared service's own venv.
