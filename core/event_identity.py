@@ -60,8 +60,21 @@ nlp = spacy.load("en_core_web_sm")
 # notable (cross-over figures this project's own prompts explicitly name:
 # Xi Jinping, Wang Qishan, Han Zheng, the "Big 3" Putin/Trump, plus Orban/
 # Lula/Taiwan's Lai Ching-te as named examples in those same prompts),
+# us_officials (2026-09-05 addition — the real Trump administration Cabinet
+# roster, copied verbatim from AM1ST's own already-vetted "cabinet" list,
+# since it's the same real people and this feed's own content-gen prompt
+# explicitly prioritizes "if President Trump or America says something
+# about China"), world_leaders (2026-09-05 addition — heads of state/
+# government who recur in this feed's "Global Pushback"/"Strategic Theater
+# Impact" themes: Kim Jong Un, Modi, Marcos, Zelenskyy, Takaichi, von der
+# Leyen, Macron, Starmer, Albanese — a starting, not exhaustive, roster;
+# unlike AM1ST's single-legislature Congress list there's no one governing
+# body to enumerate exhaustively for a multi-country geopolitics feed, so
+# expand this from real ingested-article entity misses during testing
+# rather than trying to front-load every foreign ministry's full roster),
 # aliases (short forms not derivable by splitting a full name, e.g.
-# "William Lai" for the already-listed "Lai Ching-te").
+# "William Lai" for the already-listed "Lai Ching-te", "Bongbong Marcos"
+# and "Kim Jong-un" likewise for their 2026-09-05 world_leaders entries).
 #
 # Only full-name patterns are added for any entry whose `short_form` is
 # null — same convention AM1ST used for its own Cabinet/notable entries
@@ -93,7 +106,12 @@ def _gazetteer_patterns() -> list[dict]:
     # resolved identity — a same-surname collision doesn't make the
     # guessed string wrong, it's still a real, correct actor name either
     # way (same reasoning AM1ST applied to its own Cabinet/notable list).
-    for full_name, short_form in data["ccp_leadership"] + data["notable"]:
+    for full_name, short_form in (
+        data["ccp_leadership"]
+        + data["notable"]
+        + data.get("us_officials", [])
+        + data.get("world_leaders", [])
+    ):
         patterns.append({"label": "PERSON", "pattern": full_name})
         if short_form:
             patterns.append({"label": "PERSON", "pattern": short_form})

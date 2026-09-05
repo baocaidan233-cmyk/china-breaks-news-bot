@@ -44,7 +44,46 @@
     ["Luiz Inacio Lula da Silva", "Lula"],
     ["Lai Ching-te", "Lai"]
   ],
+  "us_officials": [
+    ["Donald Trump", "Trump"],
+    ["JD Vance", "Vance"],
+    ["Marco Rubio", "Rubio"],
+    ["Scott Bessent", "Bessent"],
+    ["Pete Hegseth", "Hegseth"],
+    ["Doug Burgum", "Burgum"],
+    ["Brooke Rollins", "Rollins"],
+    ["Howard Lutnick", "Lutnick"],
+    ["Keith Sonderling", "Sonderling"],
+    ["Robert F. Kennedy Jr.", "Kennedy"],
+    ["Scott Turner", "Turner"],
+    ["Sean Duffy", "Duffy"],
+    ["Chris Wright", "Wright"],
+    ["Linda McMahon", "McMahon"],
+    ["Doug Collins", "Collins"],
+    ["Markwayne Mullin", "Mullin"],
+    ["Todd Blanche", "Blanche"],
+    ["Susie Wiles", "Wiles"],
+    ["Lee Zeldin", "Zeldin"],
+    ["Russell Vought", "Vought"],
+    ["Jay Clayton", "Clayton"],
+    ["John Ratcliffe", "Ratcliffe"],
+    ["Jamieson Greer", "Greer"],
+    ["Kelly Loeffler", "Loeffler"]
+  ],
+  "world_leaders": [
+    ["Kim Jong Un", "Kim"],
+    ["Narendra Modi", "Modi"],
+    ["Ferdinand Marcos Jr.", "Marcos"],
+    ["Volodymyr Zelenskyy", "Zelenskyy"],
+    ["Sanae Takaichi", "Takaichi"],
+    ["Ursula von der Leyen", "von der Leyen"],
+    ["Emmanuel Macron", "Macron"],
+    ["Keir Starmer", "Starmer"],
+    ["Anthony Albanese", "Albanese"]
+  ],
   "aliases": [
-    "William Lai"
+    "William Lai",
+    "Bongbong Marcos",
+    "Kim Jong-un"
   ]
 }
