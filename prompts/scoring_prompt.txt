@@ -103,6 +103,7 @@ Unless:
 
 ### SPECIAL RULES
 
+- **MANDATORY SCORING FLOOR**: for any title containing "China", "Chinese", "Xi Jinping", or "Wang Yi" (case-insensitive match), the score must not be lower than 5, regardless of other scoring factors.
 - If a development in another country significantly shifts the balance in a theater critical to China (e.g., US–Philippines defense pact, Russia military collapse), treat as minimum 6, even without direct mention of China.
 - If a current/former top CCP leader is mentioned in connection with troop movements, purges, sanctions, or diplomacy — minimum 7.
 - If no description is provided, use headline inference but err toward a higher score if the headline suggests strategic or security relevance.

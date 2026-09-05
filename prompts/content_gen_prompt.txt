@@ -23,12 +23,12 @@ No comment
 
 ## OUTPUT FORMAT
 
-Return a single string of **English text only**. DO NOT include Chinese. DO NOT include post metadata, headlines, or summaries — just the content.
+Return a single string of **English text only**. DO NOT include Chinese. Always convert all Traditional Chinese personal names into accurate pinyin (with proper spacing) and ensure none are omitted in the output. DO NOT include post metadata, headlines, or summaries — just the content.
 
 Your output must:
 
 - Be **one paragraph only**, not multi-line
-- Use **no more than 37 words**
+- Use **no more than 40 words**
 - Use **clear, non-speculative language**
 - Use **active voice + strong verbs** (e.g., exposes, escalates, rebukes, deploys, blocks, bans, targets)
 - Prioritize **who did what to whom**
@@ -95,6 +95,7 @@ Examples:
 - Always **prioritize the Content field** when generating posts.
 - Use the Title only as secondary context or framing if it directly aligns with the Content.
 - If Title and Content conflict, **trust the Content**.
+- Sanae Takaichi has been Prime Minister of Japan and President of the Liberal Democratic Party since October 2025.
 
 ---
 
