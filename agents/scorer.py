@@ -21,9 +21,11 @@ class ScoreOutput(BaseModel):
 
 class Scorer:
     """AI relevancy scoring — prompts/scoring_prompt.txt is China Breaks'
-    own CCP-exposure scoring prompt (finalized by the user from this
-    project's live n8n export plus a design doc, copied here verbatim —
-    not AM1ST's own America First scoring prompt, which this mechanism was
+    own CCP-exposure scoring prompt (redesigned 2026-09-05 around AM1ST's
+    own mature Channel-Position/Nexus-Gate/Core-Themes/score-bands
+    template, after cross-checking against this project's real, live n8n
+    prompts — see project_china_breaks_bot memory — not AM1ST's own
+    America First scoring prompt content, which this mechanism was
     otherwise ported from).
 
     Runs on config.openai.chat_model (gpt-4o-mini) — this project's own
@@ -62,7 +64,7 @@ class Scorer:
         resp = await self._client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content or ""
 
-    async def score(self, candidate: Candidate) -> ScoreOutput | None:
+    async def score(self, candidate: Candidate, trending_headlines: list[str] | None = None) -> ScoreOutput | None:
         # Corroboration signal (2026-08-06 — see core/config.py's HeatConfig
         # and project_am1st_migration memory's 2026-08-05 design note):
         # heat_score/event_first_seen_at are set by main.py's Layer 3, from
@@ -71,11 +73,30 @@ class Scorer:
         # to this article's own published_at when nothing earlier was found.
         first_seen = candidate.event_first_seen_at or candidate.published_at
         hours_since_first_seen = round((datetime.now(timezone.utc) - first_seen).total_seconds() / 3600, 1)
+        # Trending headlines (2026-09-05, ported from AM1ST's own 2026-09-04
+        # addition — see project_china_breaks_bot memory) — same free
+        # Google News "China CCP" feed agents/trending.py already supplies
+        # to main_publish.py's priority_ranker, reused here so the Scorer
+        # has an EXTERNAL signal of what's actually getting mainstream
+        # attention right now, distinct from heat_score (which only
+        # reflects how many of this feed's own RSS sources have
+        # corroborated THIS specific candidate's underlying event).
+        # Optional/best-effort — an empty list (fetch failure, or a caller
+        # that doesn't pass one) just omits the section below, same
+        # fail-open convention as everywhere else. The scoring_prompt.txt
+        # system message references this signal by name, so main.py MUST
+        # actually fetch and pass it once per cycle for the prompt's own
+        # claim to be true at runtime.
+        trending_block = ""
+        if trending_headlines:
+            headlines = "\n".join(f"- {h}" for h in trending_headlines)
+            trending_block = f"\n\nCurrently trending in China/CCP news (Google News, for context only):\n{headlines}"
         user_message = (
             f"Title: {candidate.title}\n\nDescription: {candidate.description}"
             f"\n\nCorroboration: heat_score={candidate.heat_score:.1f} (1.0 = only this one source"
             f" reporting it so far; higher means more outlets, weighted, are covering the same event),"
             f" hours_since_event_first_seen={hours_since_first_seen}"
+            f"{trending_block}"
         )
         raw = await self._call(user_message)
         try:

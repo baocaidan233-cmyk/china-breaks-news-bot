@@ -45,7 +45,14 @@ async def load_rss_sources(config: AppConfig) -> list[RssSource]:
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
-    body = {"filter": {"property": props.in_use, "checkbox": {"equals": True}}}
+    body = {
+        "filter": {
+            "or": [
+                {"property": props.in_use_major, "checkbox": {"equals": True}},
+                {"property": props.in_use_minor, "checkbox": {"equals": True}},
+            ]
+        }
+    }
 
     sources: list[RssSource] = []
     cursor: str | None = None

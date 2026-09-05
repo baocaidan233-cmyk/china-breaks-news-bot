@@ -36,7 +36,7 @@
 
 机制跟 AM1ST 完全一致（详见 AM1ST 自己的 README），只是几个调参数字换成了从 China Breaks 真实 n8n 系统里读到的值：
 
-1. **读信源列表**（Notion 源库）——只处理 `In_use_2` 勾选为 true 的行（这个字段名是**唯一一个**针对 China Breaks 真实库做过live验证的字段，其余字段名——RSS地址、名称、cookie、网站——都是从 AM1ST 自己的字段名照抄过来的占位猜测，正式跑之前必须重新核实一遍）。
+1. **读信源列表**（Notion 源库）——`in_use` 或 `In_use_2` 勾选为 true 的行都会处理（这两个字段名都已针对 China Breaks 真实库做过live验证，2026-09-05：真实 n8n 系统里这张源表本来就分主流/小众两条线各用一个勾选列，这个 Python 版本不拆两条流程，所以两个勾选列都读、取并集，不然只读一个会漏掉另一半真实信源；除这两个字段外，其余字段名——RSS地址、名称、cookie、网站——仍是从 AM1ST 自己的字段名照抄过来的占位猜测，正式跑之前必须重新核实一遍）。
 2. **抓 RSS**——发布时间在最近 **6 小时**以内（`max_publish_age_hours`，比 AM1ST 的 3 小时宽，这是从老 n8n 系统的 `global_config` 节点里读到的真实调参值）。同时新加了两个 AM1ST 没有的抓取上限（同样来自老 n8n 系统的真实调参）：单个信源最多读 **150** 条（`rss.max_items_per_feed`），整批去重+发布时间过滤之后总共最多留 **200** 条（`rss.max_total_items`，按发布时间从新到旧截断）。
 3. **去重第一层 —— Redis 精确查重**：Redis key 前缀直接复用了老 n8n 系统正在用的真实前缀 `newsroom:chinabreaks:url_hash:`（不是随便起的新命名空间）——这样做是故意的：新老两套系统共用同一个"这个链接见过没见过"的判断，新系统一上线就能识别出老系统已经处理过的链接，不会因为换了新前缀就把所有旧链接当成"新的"重新走一遍。
 4. **纯英文过滤 / 同批次语义聚簇 / 跨轮次查重 / 事件热度预览** —— 机制跟 AM1ST 一模一样，见 `core/event_identity.py` / `core/qdrant_store.py` 的代码注释。
@@ -61,9 +61,9 @@
 
 | 项目 | 值 | 备注 |
 |---|---|---|
-| Notion 源库（RSS） | id `22e16dc99f32808fb86ec094a71fe7af`，名字 "rss_n8n_chinabreaks_to_notion" | 活跃行勾选列**确认**叫 `In_use_2`；RSS地址/名称/cookie/网站字段名**未验证**，是从 AM1ST 抄的占位猜测 |
+| Notion 源库（RSS） | id `22e16dc99f32808fb86ec094a71fe7af`，名字 "rss_n8n_chinabreaks_to_notion" | 活跃行勾选列**确认**有两个：`in_use`（真实系统的"主流媒体"线用）和 `In_use_2`（"小众媒体"线用）——本项目不拆两条流程，两个都查、取并集；RSS地址/名称/cookie/网站字段名**未验证**，是从 AM1ST 抄的占位猜测 |
 | Notion 候选/日志库 | id `22e16dc99f32808788e8dec5cd9107ca`，见过叫 "Chinadaily_news_Channel" 也见过叫 "china_breaks_Channel"（同一个 id） | **已确认**的真实字段：`author`/`description`/`published_at`/`Title`/`url`/`url_to_image`/`post_content`/`llm_score`/`llm_comment`/`content`/`url_hash`/`send_status`/`channel_name`（select，值 "ChinaBreaks"）/`priority`（number，老系统发布查询排序用）。本项目的 `heat_score`/`event_first_seen_at`/`is_hot` 三个字段**在真实库里没有对应列**——真正跑之前要么给库加这三列，要么把这三个字段名重新映射到已有列上。`url_to_image` 和 `priority` 这两个真实存在的列，本项目目前的架构（跟 AM1ST 一样，优先级排序只在内存里算一次、不写回 Notion）暂时用不上。 |
-| Redis URL哈希去重 key 前缀 | `newsroom:chinabreaks:url_hash:` | 真实生产前缀，故意原样复用（见上面第二节第3点） |
+| Redis URL哈希去重 key 前缀 | 本项目用 `newsroom:chinabreaks:url_hash:` | **不是**真实生产前缀——2026-09-05 从真实 n8n 系统里确认，生产环境实际用的是 `newsroom:cnbreaks:url_hash:`。本项目故意不改成一样的，是为了测试阶段不和还在跑的 n8n 系统共享查重状态；等确定要不要跟生产系统状态打通（测试账号 vs 正式账号那个决定）之后再考虑要不要对齐 |
 | 真实 Gettr 账号 | 用户名 `chinabreaks`，userId `gettrfoodofficial` | **仅作参考记录**，`.env`/`.env.example` 里 Gettr 相关字段全部留空，没有写进任何真实 token（token 是密钥，用户名/userId不是，但同样没必要写进代码库） |
 | 抓取新鲜度窗口 | ~6 小时 | 来自老 n8n `global_config` 节点 |
 | RSS 抓取上限 | 单信源 ~150 条 / 整批 ~200 条 | 同上 |
@@ -117,15 +117,16 @@ AM1ST 当年是拿 Google News 的 NATION 板块 vs POLITICS 板块做过真实�
 | Qdrant | 三个独立 collection：`chinabreaks_embeddings` / `chinabreaks_posting_news_embedding` / `chinabreaks_events` | 复用团队现有共享集群的设想，跟 AM1ST 一样 |
 | OpenAI（gpt-4o-mini） | 打分 + 生成文案 + 优先级重排 + 事件身份验证 + embedding | 支持双 key 容错（`core/openai_client.py`），主 key 限流/欠费时自动切换 |
 | Gettr | 实际发帖 | 本次构建**完全没有配置真实凭证**，也没有真实发布测试 |
-| 共享无头 Chromium 渲染服务 | 部分信源反爬/付费墙的兜底抓取 | `core/render_client.py`，依赖一个部署在某台 VM 上、本项目**没有部署**的独立服务；调用会因为服务不可达而优雅地"查不到就跳过"，不会报错崩溃 |
+| 共享无头 Chromium 渲染服务 | 部分信源反爬/付费墙的兜底抓取 | `core/render_client.py`，硬编码指向 `http://127.0.0.1:8811` —— 2026-09-05 起本项目代码已部署在 `gettr-news-agents-02` 上，这台机器本来就常驻跑着这个共享服务（AM1ST 等其它 bot 也用同一个），确认可达；本地 Mac 上跑当然连不上，会优雅地"查不到就跳过"，不会报错崩溃 |
 
 ---
 
 ## 九、还需要你确认/决定的事
 
-1. Notion 源库（`rss_n8n_chinabreaks_to_notion`）除了 `In_use_2` 之外的字段名（RSS地址、名称、cookie、网站）——目前是从 AM1ST 抄的占位猜测，正式跑之前需要对真实库做一次 live schema 读取核实。
+1. Notion 源库（`rss_n8n_chinabreaks_to_notion`）除了 `in_use`/`In_use_2`（2026-09-05 已双双确认）之外的字段名（RSS地址、名称、cookie、网站）——目前仍是从 AM1ST 抄的占位猜测，正式跑之前需要对真实库做一次 live schema 读取核实。
 2. Notion 候选池库缺少 `heat_score`/`event_first_seen_at`/`is_hot` 三列——需要决定是给库加这三列，还是把这三个字段重新映射到库里已有的其它列。
 3. `热点标记`（hot_topics）库的 db id 目前是空的——如果打算让 China Breaks 复用 AM1ST 现在已经在用的那张共享表，需要把真实 db id 填进 `.env`。
 4. `heat.major_outlets`（用于给信源可信度加权的"主流媒体名单"）我换成了 Reuters/AFP/DW/Nikkei/Kyodo/VOA/RFA/CNA——这不是从真实系统里读到的值，是我按内容提示词里点名的可信信源自己做的替换，值得你确认一下是否合适。
-5. `publish.candidate_min_score`/`weekday_min_score`/`weekend_min_score` 的 4.0/5.0/4.0——同样不是真实值，是我为了跟抓取阶段 4.0 分的门槛保持内部一致自己往下平移的，这周末拿到真实数据后建议重新看一遍。
-6. `entity_tokens()` 对中文姓名"姓在前"的顺序处理不准确（见上文第六节第1点）——继承自 AM1ST，没有修，值得留意。
+5. `publish.candidate_min_score`/`weekday_min_score`/`weekend_min_score` 的 4.0/5.0/4.0——同样不是真实值，是我为了跟抓取阶段 4.0 分的门槛保持内部一致自己往下平移的，这周末拿到真实数据后建议重新看一遍（抓取阶段本身的 4.0 分门槛已在 2026-09-05 对照真实 n8n 系统确认无误，不用再改）。
+6. ~~`entity_tokens()` 对中文姓名"姓在前"的顺序处理不准确~~ —— 2026-09-05 已修：凡是词表里有的人名（`ccp_leadership`/`notable`/`us_officials`/`world_leaders`），现在会按词表自带的 short_form 取简称，不再盲目取词组最后一个词；词表之外、靠统计模型识别出来的生僻中文人名仍会退回旧逻辑，这是词表覆盖范围的固有局限，不是新引入的问题。
+7. 打分 prompt（2026-09-05 已按频道定位和 AM1ST 现在更成熟的模板整个重写）里提到的"trending headlines"佐证信号，抓取阶段之前一直没真的接进 `main.py`——已在同一天补上（`agents/trending.py` 的 Google News "China CCP" 订阅源，每个抓取周期只拉一次，传给每条候选打分），否则 prompt 说的和代码实际做的会对不上。

@@ -84,16 +84,38 @@ nlp = spacy.load("en_core_web_sm")
 # several Politburo members surnamed Li/Wang/Zhang/Chen/He — a bare "Li"
 # or "Wang" pattern would be too ambiguous to mean any one of them).
 #
-# Known limitation, NOT fixed here (see entity_tokens()'s PERSON-span
-# handling below): that logic keeps only the LAST word of a multi-word
-# PERSON span, assuming Western given-name-last order. Chinese (and
-# Vietnamese-style) names are surname-FIRST — "Xi Jinping" truncates to
-# "jinping", not the surname "xi" real headlines actually use for
-# shorthand. This is an inherited AM1ST mechanism working exactly as
-# designed for Western names; flagged for the user's retuning pass rather
-# than changed, per the instruction to port this module's mechanism
-# unchanged.
+# 2026-09-05 FIX (previously flagged, now closed — see
+# project_china_breaks_bot memory): entity_tokens()'s PERSON-span handling
+# below keeps only the LAST word of a multi-word span, which is correct
+# for Western given-name-last order but wrong for Chinese (and Vietnamese-
+# style) surname-FIRST names — "Xi Jinping" was truncating to "jinping"
+# instead of the surname "xi" real headlines actually use for shorthand.
+# Fixed via _PERSON_SHORT_FORMS below: any PERSON span whose full text
+# exactly matches a gazetteer full_name uses that entry's own short_form
+# instead of blindly taking the span's last word. Only covers names
+# actually in the gazetteer — an unlisted CJK name recognized by
+# statistical NER alone still falls back to the old (wrong-for-CJK) last-
+# word heuristic, same residual gap a bare gazetteer always has.
 _GAZETTEER_PATH = Path(__file__).parent / "gazetteer_names.json"
+
+
+def _person_short_form_lookup() -> dict[str, tuple[str, ...]]:
+    """full_name (lowercased) -> short_form's own word tokens, for every
+    gazetteer PERSON entry that has a short_form. Built once at import
+    time from the same categories _gazetteer_patterns() draws PERSON
+    patterns from."""
+    with open(_GAZETTEER_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    lookup: dict[str, tuple[str, ...]] = {}
+    for full_name, short_form in (
+        data["ccp_leadership"]
+        + data["notable"]
+        + data.get("us_officials", [])
+        + data.get("world_leaders", [])
+    ):
+        if short_form:
+            lookup[full_name.lower()] = tuple(_TOKEN_RE.findall(short_form.lower()))
+    return lookup
 
 
 def _gazetteer_patterns() -> list[dict]:
@@ -148,6 +170,7 @@ _STOPWORDS = {
 }
 _TOKEN_RE = re.compile(r"[a-zA-Z']+")
 _TRAILING_POSSESSIVE_RE = re.compile(r"’s$|'s$")
+_PERSON_SHORT_FORMS = _person_short_form_lookup()
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): all three are AM1ST's own US-government-specific
@@ -458,7 +481,14 @@ def entity_tokens(text: str) -> set[str]:
     distinguishes someone, and this keeps the original "Andy Ogles"/
     "Ogles" partial-match goal intact for the more identifying half of the
     name. Non-PERSON labels are unaffected — "Supreme Court" both words
-    matter, "Kuwait" is one word regardless."""
+    matter, "Kuwait" is one word regardless.
+
+    2026-09-05: "keep the last word" is only correct for Western given-
+    name-last order — it mangled surname-FIRST names like "Xi Jinping"
+    down to "jinping" instead of the real shorthand "xi". Any PERSON span
+    matching a gazetteer full_name now uses that entry's own short_form
+    (_PERSON_SHORT_FORMS) instead; only an unlisted name still falls back
+    to the last-word heuristic."""
     if not text:
         return set()
     doc = nlp(_strip_html(text))
@@ -480,7 +510,8 @@ def entity_tokens(text: str) -> set[str]:
                 tokens.add(acronym)
         words = _TOKEN_RE.findall(cleaned.lower())
         if ent.label_ == "PERSON" and len(words) > 1:
-            words = words[-1:]
+            known_short = _PERSON_SHORT_FORMS.get(cleaned.lower())
+            words = list(known_short) if known_short else words[-1:]
         for tok in words:
             if tok not in _STOPWORDS and len(tok) > 1:
                 tokens.add(tok)

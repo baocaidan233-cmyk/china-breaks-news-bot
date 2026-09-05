@@ -4,10 +4,15 @@ notion:
   hot_topics_db_id: ""    # env: NOTION_HOT_TOPICS_DB_ID — shared "热点标记" table (same mechanism AM1ST and sibling bots already use), manual breaking-news flag, see core/hot_topics.py
   alert_user_id: ""       # env: NOTION_ALERT_USER_ID — @mentioned on cookie/extraction failures
   channel_name: "ChinaBreaks"  # this bot's tag in the shared candidate-pool database's channel_name select column (real confirmed value) — written on every row this bot creates, filtered on by every publish-side query
-  # Source props: In_use_2 is CONFIRMED against the real live "rss_n8n_chinabreaks_to_notion"
-  # database (2026-09-04). Every other source prop below is an UNVERIFIED
-  # placeholder carried over from AM1ST's own source-table column names —
-  # re-check against a live schema read before this bot's first real run.
+  # Source props: in_use ("major") and In_use_2 ("minor") are BOTH CONFIRMED
+  # against the real live "rss_n8n_chinabreaks_to_notion" database (read
+  # from its two real n8n ingestion pipelines, 2026-09-05) — this port
+  # queries an OR of both so no real source row is silently dropped just
+  # for being flagged under only one, see core/config.py's
+  # NotionSourceProps docstring. Every other source prop below is still an
+  # UNVERIFIED placeholder carried over from AM1ST's own source-table
+  # column names — re-check against a live schema read before this bot's
+  # first real run.
   # Candidate props: title/url/author/description/published_at/post_content/
   # llm_score/llm_comment/content/url_hash/send_status/channel_name are
   # CONFIRMED against the real candidate-pool database's schema (read
@@ -16,7 +21,8 @@ notion:
   # see core/config.py's NotionCandidateProps docstring; add these three
   # columns (or re-map these fields to existing ones) before a real run.
   source_props:
-    in_use: "In_use_2"
+    in_use_major: "in_use"
+    in_use_minor: "In_use_2"
     feed_url: "RSS"
     name: "Name"
     cookie: "cookie"

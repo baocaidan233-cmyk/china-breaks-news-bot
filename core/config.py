@@ -9,9 +9,16 @@ from pydantic import BaseModel, Field
 
 class NotionSourceProps(BaseModel):
     """China Breaks' real source database is "rss_n8n_chinabreaks_to_notion"
-    (id 22e16dc99f32808fb86ec094a71fe7af). Its active-row checkbox column
-    is CONFIRMED named "In_use_2" (not "in_use" like AM1ST's own source
-    table) — read live from the real database, 2026-09-04.
+    (id 22e16dc99f32808fb86ec094a71fe7af). It has TWO separate active-row
+    checkbox columns, both CONFIRMED real (read directly from the live
+    n8n export's two ingestion pipelines, 2026-09-05 — see
+    project_china_breaks_bot memory): "in_use" gates the major/mainstream-
+    media source list, "In_use_2" gates the minor/niche-media source list.
+    Since this Python port deliberately runs ONE unified pipeline instead
+    of mirroring that major/minor split (the user's own call — see that
+    same memory entry), load_rss_sources() below ORs the two together so
+    no real source row gets silently dropped just because it's flagged
+    under only one of the two checkboxes.
 
     Every OTHER field below (feed_url/name/cookie/domain) is carried over
     unverified from AM1ST's own source-table column names as a best-guess
@@ -21,7 +28,8 @@ class NotionSourceProps(BaseModel):
     treat these the same way: re-verify against a live schema read before
     this bot's first real run."""
 
-    in_use: str = "In_use_2"
+    in_use_major: str = "in_use"
+    in_use_minor: str = "In_use_2"
     feed_url: str = "RSS"  # UNVERIFIED placeholder — carried over from AM1ST, re-check against a live schema read
     name: str = "Name"  # UNVERIFIED placeholder — carried over from AM1ST, re-check against a live schema read
     cookie: str = "cookie"  # UNVERIFIED placeholder — carried over from AM1ST, re-check against a live schema read
