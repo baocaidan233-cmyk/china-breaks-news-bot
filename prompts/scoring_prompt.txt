@@ -31,6 +31,24 @@ Both corroboration signals are one-directional (see section 2) — presence can 
 
 ---
 
+## 0. MANDATORY FLOORS — CHECK THESE FIRST, BEFORE ANYTHING ELSE
+
+These override any conclusion you reach below. Even if you decide a story
+fails the Nexus Gate or doesn't fit any Core Theme, if one of these
+conditions is met, the floor still applies — do not let "this doesn't
+seem thematically relevant" talk you out of a floor you already matched.
+Check every one of these BEFORE you reason about Nexus Gate/Core Theme
+fit, not after.
+
+- Any title containing "China", "Chinese", "Xi Jinping", or "Wang Yi" (case-insensitive) — never below 5.
+- Any credible, significant update on the health of Xi Jinping, Vladimir Putin, or Donald Trump tied to governance or strategic decision-making — never below 8.
+- Any CCP senior leadership mention (Xi, Politburo members, Central Military Commission, CCDI, Ministry of State Security, Ministry of Foreign Affairs) — never below 5, even if the specific development is ceremonial.
+- **Any head-of-state, head-of-government, or foreign-minister-level visit to or from China** — never below 6, even from a thin headline with no real description. A bilateral state visit is inherently a China-international-relations event; do not require a richer description to recognize this. (See section 2's band 7 "high-profile state visit" bullet for when this goes higher than 6.)
+
+*Real miss this floor exists to prevent:* a Google News aggregator entry titled "Qatari PM set to visit China" — with a description that was just the title again wrapped in an HTML link, no real content — was scored 4 with the reasoning "lacks thematic relevance to the core themes." That reasoning is exactly backwards: a head-of-government-level visit to China IS the story, regardless of how thin the description is. This should have scored at least 6 on the floor above.
+
+---
+
 ## 1. CHINA/CCP NEXUS GATE
 
 **Check this BEFORE matching Core Themes below.** A story must have a real, concrete connection to China or the CCP: it happens in China/Hong Kong/Macau/Taiwan, involves the Chinese government/CCP/its officials/state media/state-owned enterprises, involves a foreign government or institution's explicit action or statement directed at China/the CCP (sanctions, defense pact, tech ban, tariff, spy arrest), or is a strategic-theater development (Russia, Iran, North Korea, BRICS, AUKUS, Quad) that concretely shifts China's position. Thematic or ideological resemblance to a Core Theme below is NOT a China connection by itself — a repressive-regime story about Russia or Iran with zero China linkage does not become on-theme just because it echoes an authoritarianism-watch angle.

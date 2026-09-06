@@ -64,10 +64,17 @@ openai:
   scoring_prompt_file: "prompts/scoring_prompt.txt"
   content_gen_prompt_file: "prompts/content_gen_prompt.txt"
   staleness_check_prompt_file: "prompts/staleness_check_prompt.txt"  # agents/staleness_checker.py, ported from AM1ST 2026-09-06
-  # Ingestion-side AI score gate — real calibrated value from the old n8n
-  # system's global_config node (effectively "score > 3", i.e. minimum
-  # passing score of 4) — much looser than AM1ST's own >=5 gate.
-  score_threshold: 4.0
+  # Ingestion-side AI score gate — was 4.0 (the real old n8n system's
+  # global_config value), changed to 5.0 on 2026-09-06 per the user's
+  # explicit instruction ("5分及以上才能入库") after a real early-production
+  # miscalibration: a candidate whose title contained "China" got scored 4
+  # by the model despite scoring_prompt.txt's own explicit "never below 5"
+  # floor for exactly that case (see that file's new section 0) — at
+  # score_threshold=4.0 that wrongly-under-floor score still passed this
+  # gate and reached the candidate pool. Matches AM1ST's own >=5 gate and
+  # scoring_prompt.txt's own stated "5 is the floor" — this gate should
+  # never have been looser than what the prompt itself promises.
+  score_threshold: 5.0
 
 dedup:
   semantic_threshold: 0.8  # cosine similarity, both intra-batch and cross-cycle layers — standing dedup architecture default, unchanged from AM1ST, not independently recalibrated for China Breaks yet
@@ -146,14 +153,13 @@ gettr:
 
 publish:
   interval_seconds: 1800       # 30 minutes — deployment note: stagger this process's start time to land near :02/:32 past the hour (vs AM1ST's :17/:47) if ever run alongside it on the same host; not anchored in code today, see core/config.py
-  # candidate_min_score/weekday_min_score/weekend_min_score are shifted
-  # down by 1 point from AM1ST's own 5.0/6.0/5.0 — an internal-consistency
-  # fix, not an independently confirmed real value, since this project's
-  # own ingestion score_threshold (4.0) is 1 point lower than AM1ST's
-  # (5.0) — see core/config.py's PublishConfig docstring.
-  candidate_min_score: 4.0     # Notion query floor (lower of weekday/weekend below)
-  weekday_min_score: 5.0
-  weekend_min_score: 4.0
+  # candidate_min_score/weekday_min_score/weekend_min_score match AM1ST's
+  # own 5.0/6.0/5.0 exactly — reverted 2026-09-06 now that the ingestion
+  # score_threshold that motivated the old 1-point-lower shim is back to
+  # 5.0 too, see core/config.py's PublishConfig docstring.
+  candidate_min_score: 5.0     # Notion query floor (lower of weekday/weekend below)
+  weekday_min_score: 6.0
+  weekend_min_score: 5.0
   candidate_max_age_hours: 24  # Notion query ceiling — the WIDER of weekday/weekend below, see core/config.py's PublishConfig docstring
   weekday_max_age_hours: 12   # ported from AM1ST 2026-09-06
   weekend_max_age_hours: 24   # ported from AM1ST 2026-09-06 — unverified for this feed's own source mix, see core/config.py

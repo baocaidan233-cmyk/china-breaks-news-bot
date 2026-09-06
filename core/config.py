@@ -406,20 +406,20 @@ class PublishConfig(BaseModel):
     interval_seconds/candidate_max_age_hours/fresh_hours/batch_min/
     batch_max/posted_dedup_window_hours/posted_dedup_threshold are AM1ST's
     own confirmed values, inherited unchanged as a starting point.
-    candidate_min_score/weekday_min_score/weekend_min_score are shifted
-    down by 1 point from AM1ST's own 5.0/6.0/5.0 — NOT an independently
-    confirmed real value, but a deliberate internal-consistency fix: this
-    project's own ingestion score_threshold is 4.0 (vs AM1ST's 5.0, see
-    OpenAIConfig), and leaving the publish-side floor at 5.0 unchanged
-    would create a dead band (every candidate scored 4.0-4.9 could enter
-    the ingestion candidate pool but could never clear the publish
-    query's own floor to ever be considered for posting). Flagged here so
-    this weekend's retuning pass can revisit it once real data exists."""
+    candidate_min_score/weekday_min_score/weekend_min_score match AM1ST's
+    own 5.0/6.0/5.0 exactly (reverted 2026-09-06 from a temporary 1-point-
+    lower internal-consistency shim that existed only because this
+    project's own ingestion score_threshold was 4.0 at the time — that gate
+    is now 5.0 too, per the user's explicit instruction after a real early-
+    production case where a title-contains-"China" candidate wrongly
+    scored 4 by the model slipped past the old 4.0 gate; see OpenAIConfig's
+    score_threshold and scoring_prompt.txt's new section 0). With both
+    gates back at 5.0 there's no dead band to compensate for."""
 
     interval_seconds: int = 1800  # 30 minutes — deployment note: when this process is actually scheduled on a host, stagger its start time so cycles land near :02/:32 past the hour rather than AM1ST's :17/:47, so the two don't hit shared APIs at the exact same instant if ever run on the same machine. Not something main_publish.py's own self-looping code anchors to a wall-clock minute today (see its main() loop) — a deployment-time concern, out of scope for this code-only build.
-    candidate_min_score: float = 4.0  # Notion query floor — see class docstring's "shifted down by 1" note
-    weekday_min_score: float = 5.0  # weekdays: heavier real news volume, prefer this floor first — see class docstring
-    weekend_min_score: float = 4.0  # weekends: lighter volume, use this floor directly — see class docstring
+    candidate_min_score: float = 5.0  # Notion query floor — see class docstring
+    weekday_min_score: float = 6.0  # weekdays: heavier real news volume, prefer this floor first — see class docstring
+    weekend_min_score: float = 5.0  # weekends: lighter volume, use this floor directly — see class docstring
     candidate_max_age_hours: int = 24  # Notion query ceiling — the WIDER of weekday/weekend_max_age_hours below, so weekend-eligible candidates aren't excluded before select_batch() even sees them; select_batch() applies the actual day-aware ceiling on top (ported from AM1ST 2026-09-06, ceiling widened from a flat 12h — see class docstring)
     weekday_max_age_hours: int = 12  # weekdays: heavy real news volume — keep the original "same-day news" freshness rule
     weekend_max_age_hours: int = 24  # weekends: real volume is much lower — widened so a Friday-night story is still eligible through Saturday instead of the pool running thin/empty. AM1ST's own choice was US/Eastern-weekend-calibrated; this project's own source pool skews Western-wire-service-heavy too, but unverified for this feed specifically — revisit once real volume data exists
