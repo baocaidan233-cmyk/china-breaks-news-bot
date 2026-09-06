@@ -11,6 +11,7 @@ trafilatura>=2.0
 lxml_html_clean>=0.4
 langdetect>=1.0.9
 spacy>=3.7
+jieba>=0.42  # core/event_identity.py's Chinese word-segmentation pre-step, 2026-09-06 — see _maybe_segment_cjk() docstring
 # after installing requirements: python -m spacy download en_core_web_sm
 # (core/event_identity.py's entity_tokens() needs this model on disk — not
 # pip-installable as a plain dependency, must be fetched separately, on

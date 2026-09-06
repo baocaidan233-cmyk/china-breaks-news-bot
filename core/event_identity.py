@@ -26,6 +26,7 @@ import time
 from itertools import combinations
 from pathlib import Path
 
+import jieba
 import redis.asyncio as redis
 import spacy
 
@@ -33,6 +34,7 @@ from collections import Counter
 
 from core.config import AppConfig
 from core.hashing import tokenize, weighted_overlap
+from core.language import _cjk_ratio, _is_cjk_char
 from core.language import is_english
 from core.openai_client import create_openai_client
 
@@ -204,6 +206,52 @@ def _gazetteer_patterns() -> list[dict]:
 
 _ruler = nlp.add_pipe("entity_ruler", before="ner")
 _ruler.add_patterns(_gazetteer_patterns())
+
+
+def _register_cjk_gazetteer_words() -> None:
+    """jieba.add_word() for every Chinese gazetteer name — 2026-09-06. Why
+    this is needed at all: spaCy's entity_ruler patterns are re-tokenized
+    through the SAME (English) tokenizer as the input document, so a plain
+    string pattern like "习近平" is itself just one glued-together token
+    with no internal word boundary. For that pattern to ever match, the
+    INPUT text must also produce "习近平" as one single token after
+    pre-segmentation (see _maybe_segment_cjk() below) — which depends on
+    jieba's dictionary already treating it as one word. jieba's default
+    dictionary is built from general corpus frequency, not guaranteed to
+    include every one of these names (a mid-level provincial official is
+    far less frequent than "习近平" in whatever corpus jieba shipped with),
+    so this forces the exact alignment rather than hoping for it."""
+    with open(_GAZETTEER_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    with open(_MULTILINGUAL_GAZETTEER_PATH, encoding="utf-8") as f:
+        multilingual = json.load(f)
+    for full_name, _short_form in _all_person_pairs(data, multilingual):
+        if any(_is_cjk_char(ch) for ch in full_name):
+            jieba.add_word(full_name)
+
+
+_register_cjk_gazetteer_words()
+
+
+def _maybe_segment_cjk(text: str) -> str:
+    """Chinese has no whitespace between words, so this module's (English-
+    tokenizer-based) pipeline glues an entire unspaced run into one
+    unmatchable token — confirmed 2026-09-06: a real Chinese sentence
+    mentioning 习近平/王毅 produced zero entities, though isolating the same
+    two names with a manual space in between matched fine. Running the
+    text through jieba first and rejoining on spaces gives the existing
+    (English) tokenizer real word boundaries to split on, without needing
+    a second spaCy language model/pipeline running alongside this one —
+    see project_china_breaks_bot memory's 2026-09-06 entry for the fuller
+    Option A vs B writeup this followed. Only runs on text that's actually
+    majority-CJK (reusing core/language.py's already-validated ratio
+    check) — jieba on an English sentence would just be wasted work with
+    no effect, since it passes non-Chinese runs through unchanged anyway,
+    but there's no reason to pay for it when the ratio check already says
+    no CJK content is present."""
+    if _cjk_ratio(text) > 0.05:
+        return " ".join(jieba.cut(text))
+    return text
 
 # Not real people — collective/house pseudonyms whose byline shows up on
 # unrelated articles, which would otherwise poison entity-based matching
@@ -575,7 +623,7 @@ def entity_tokens(text: str) -> set[str]:
     to the last-word heuristic."""
     if not text:
         return set()
-    doc = nlp(_strip_html(text))
+    doc = nlp(_maybe_segment_cjk(_strip_html(text)))
     tokens: set[str] = set()
     for ent in doc.ents:
         if ent.label_ not in _ENTITY_LABELS:
