@@ -73,7 +73,6 @@ from core.config import load_config
 from core.event_identity import EventVerifier, HubIndex, entity_tokens, event_identity_text, extract_event_frame, log_decision, no_conflicting_specifics, verify_compatibility
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
-from core.language import is_english
 from core.notion_candidates import write_candidate
 from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, QdrantStore, ensure_collection_with_retry
@@ -98,27 +97,6 @@ async def run_cycle(
     # --- Layer 1: exact-duplicate URL-hash dedup (Redis) ---
     survivors = [c for c in candidates if await redis_store.claim_new(c.url_hash)]
     logger.info("run_cycle: %d/%d new after URL-hash dedup", len(survivors), len(candidates))
-    if not survivors:
-        return
-
-    # --- Layer 1.5: English-only filter — China Breaks is an English-only
-    # channel, same posture as AM1ST; a non-English candidate wastes
-    # embedding/scoring cost and, if it slips all the way through, can only
-    # be caught downstream by the writer's own judgment (see
-    # core/language.py docstring for the real AM1ST incident that showed
-    # that alone isn't reliable — this check is ported here as a
-    # preventive measure from day one, not added after our own incident).
-    # Cheap, on title+description only — the full extracted article gets
-    # its own check at publish time in main_publish.py. ---
-    before_lang_filter = len(survivors)
-    english_survivors = []
-    for c in survivors:
-        if is_english(f"{c.title} {c.description}"):
-            english_survivors.append(c)
-        else:
-            logger.info("run_cycle: %s dropped — non-English title/description", c.url)
-    survivors = english_survivors
-    logger.info("run_cycle: %d/%d survive English-language filter", len(survivors), before_lang_filter)
     if not survivors:
         return
 

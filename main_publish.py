@@ -98,7 +98,6 @@ from agents.writer import Writer
 from core.alerts import AlertNotifier
 from core.config import load_config
 from core.event_identity import EventVerifier
-from core.language import is_english
 from core.notion_candidates import count_recent_high_score, has_unpublished_hot_candidate, mark_extraction_failed, mark_send_status, query_eligible_candidates
 from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
@@ -196,18 +195,6 @@ async def run_cycle(
                 await mark_extraction_failed(config, c.page_id)
                 continue
             c.content = text
-
-            # English-only channel — check the actual extracted article text,
-            # not just title/description (main.py's cheaper ingestion-time
-            # filter already covers those). Ported from AM1ST, where a real
-            # published post was a non-English-language article that made it
-            # all the way to publish because the writer's own "decline" signal
-            # was, in that instance, missed by a separate formatting bug — see
-            # core/language.py's docstring. This check doesn't depend on the
-            # model noticing at all.
-            if not is_english(c.content[:1000]):
-                logger.info("run_cycle: %s dropped — non-English article content", c.url)
-                continue
 
             # Staleness classification (2026-09-06, ported from AM1ST) — a
             # separate, single-purpose call BEFORE the writer runs; see
