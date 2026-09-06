@@ -15,12 +15,17 @@ from core.render_client import render as render_service_render
 logger = logging.getLogger(__name__)
 
 # Same headers as agents/rss_fetcher.py's FEED_HEADERS — a bare httpx client
-# gets blocked by some sites' basic bot filters.
+# gets blocked by some sites' basic bot filters. Referer added 2026-09-06:
+# washingtontimes.com's Cloudflare check consistently 403'd this exact
+# header set with no Referer, but passed every time once one was present —
+# confirmed on a live article. A generic search-engine referer costs
+# nothing for sites that don't check it.
 FETCH_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.google.com/",
 }
 
 # Domains confirmed gated behind real bot-detection/JS challenges that a
