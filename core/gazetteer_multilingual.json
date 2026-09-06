@@ -1,0 +1,79 @@
+{
+  "_comment": "Non-English spellings of the SAME high-frequency people already listed in gazetteer_names.json (English), each paired with the SAME short_form already used there — this is what makes a Chinese/Russian/Polish mention of this person resolve to the identical canonical token entity_tokens() already emits for the English mention, closing the cross-lingual same-event-matching gap found 2026-09-06 (a Polish article and an English article about the literal same Witkoff/Kushner/Zelensky meeting were judged NO_OVERLAP because their entity tokens never matched). Confidence: zh_hans/zh_hant/ru drafted with high confidence (standard press transliterations); fa (Persian) deliberately left empty everywhere below — no independently-verified source for Persian transliteration, do not fill in without one. pl (Polish) is empty for anyone whose name is written identically to the English form in Polish text (true for nearly all CCP/US figures — Polish borrows pinyin for Chinese names and keeps Western Latin names unchanged), and filled in only for the handful of Slavic names Polish actually re-spells (Putin, Zelensky, Lavrov, Mishustin).",
+  "roles": {
+    "_comment": "Reference only — NOT consumed by entity_tokens()/event matching. English-language role tag per person, for editorial/prompt reference.",
+    "Xi Jinping": "President of the PRC / CCP General Secretary",
+    "Li Qiang": "Premier",
+    "Wang Yi": "Foreign Minister / Politburo Member",
+    "Han Zheng": "Vice President of the PRC",
+    "Zhao Leji": "Chairman, NPC Standing Committee",
+    "Zhang Youxia": "Vice Chairman, Central Military Commission",
+    "Ding Xuexiang": "Executive Vice Premier",
+    "Cai Qi": "Director, CCP General Office",
+    "Wang Huning": "Chairman, CPPCC",
+    "He Lifeng": "Vice Premier",
+    "Vladimir Putin": "President of Russia",
+    "Sergey Lavrov": "Foreign Minister of Russia",
+    "Mikhail Mishustin": "Prime Minister of Russia",
+    "Donald Trump": "President of the United States",
+    "JD Vance": "Vice President of the United States",
+    "Marco Rubio": "Secretary of State",
+    "Pete Hegseth": "Secretary of Defense",
+    "Scott Bessent": "Secretary of the Treasury",
+    "Steve Witkoff": "Special Envoy",
+    "Jared Kushner": "Senior Advisor / Special Envoy",
+    "Mike Johnson": "Speaker of the House",
+    "Volodymyr Zelenskyy": "President of Ukraine",
+    "Kim Jong Un": "Supreme Leader of North Korea",
+    "Narendra Modi": "Prime Minister of India",
+    "Emmanuel Macron": "President of France",
+    "Keir Starmer": "Prime Minister of the United Kingdom",
+    "Ursula von der Leyen": "President, European Commission"
+  },
+  "ccp_leadership_variants": [
+    ["习近平", "Xi"], ["習近平", "Xi"], ["Си Цзиньпин", "Xi"],
+    ["李强", "Li Qiang"], ["李強", "Li Qiang"], ["Ли Цян", "Li Qiang"],
+    ["王毅", "Wang Yi"], ["Ван И", "Wang Yi"],
+    ["韩正", "Han"], ["韓正", "Han"], ["Хань Чжэн", "Han"],
+    ["赵乐际", "Zhao"], ["趙樂際", "Zhao"], ["Чжао Лэцзи", "Zhao"],
+    ["张又侠", "Zhang Youxia"], ["張又俠", "Zhang Youxia"], ["Чжан Юся", "Zhang Youxia"],
+    ["丁薛祥", "Ding"], ["Дин Сюэсян", "Ding"],
+    ["蔡奇", "Cai"], ["Цай Ци", "Cai"],
+    ["王沪宁", "Wang Huning"], ["王滬寧", "Wang Huning"], ["Ван Хунин", "Wang Huning"],
+    ["何立峰", "He Lifeng"], ["Хэ Лифэн", "He Lifeng"]
+  ],
+  "notable_variants": [
+    ["普京", "Putin"], ["Путин", "Putin"], ["Владимир Путин", "Putin"], ["Władimir Putin", "Putin"],
+    ["拉夫罗夫", "Lavrov"], ["Лавров", "Lavrov"], ["Сергей Лавров", "Lavrov"], ["Siergiej Ławrow", "Lavrov"],
+    ["米舒斯京", "Mishustin"], ["Мишустин", "Mishustin"], ["Михаил Мишустин", "Mishustin"], ["Michaił Miszustin", "Mishustin"]
+  ],
+  "us_officials_variants": [
+    ["特朗普", "Trump"], ["川普", "Trump"], ["Трамп", "Trump"], ["Дональд Трамп", "Trump"],
+    ["万斯", "Vance"], ["Вэнс", "Vance"],
+    ["鲁比奥", "Rubio"], ["魯比歐", "Rubio"], ["Рубио", "Rubio"],
+    ["海格塞斯", "Hegseth"], ["Хегсет", "Hegseth"],
+    ["贝森特", "Bessent"], ["Бессент", "Bessent"]
+  ],
+  "world_leaders_variants": [
+    ["泽连斯基", "Zelenskyy"], ["澤倫斯基", "Zelenskyy"], ["Зеленский", "Zelenskyy"], ["Владимир Зеленский", "Zelenskyy"], ["Wołodymyr Zełenski", "Zelenskyy"], ["Zełenski", "Zelenskyy"],
+    ["金正恩", "Kim"], ["Ким Чен Ын", "Kim"],
+    ["莫迪", "Modi"], ["Моди", "Modi"],
+    ["马克龙", "Macron"], ["馬克龍", "Macron"], ["Макрон", "Macron"],
+    ["斯塔默", "Starmer"], ["Стармер", "Starmer"],
+    ["冯德莱恩", "von der Leyen"], ["馮德萊恩", "von der Leyen"], ["фон дер Ляйен", "von der Leyen"]
+  ],
+  "special_envoys_and_speakers": [
+    ["Steve Witkoff", "Witkoff"], ["威特科夫", "Witkoff"], ["Уиткофф", "Witkoff"], ["Стивен Уиткофф", "Witkoff"],
+    ["Jared Kushner", "Kushner"], ["库什纳", "Kushner"], ["Кушнер", "Kushner"], ["Джаред Кушнер", "Kushner"],
+    ["Mike Johnson", "Johnson"], ["迈克·约翰逊", "Johnson"], ["约翰逊", "Johnson"], ["Джонсон", "Johnson"]
+  ],
+  "role_terms_reference": {
+    "_comment": "Multilingual glossary of the 6 role categories, per user's request — NOT wired into entity_tokens()/matching (a bare role word like '外交部长' shared between two articles about two different foreign ministers would cause false same-event merges if used as a matching token; GPT-4o-mini already understands these roles natively in every language when scoring/writing, so this table's real use is as an editorial/human reference, or a future building block if a different feature needs it). fa left empty, no verified source.",
+    "mp": {"en": ["MP", "Member of Parliament", "Senator", "Congressman", "Congresswoman", "Representative"], "zh_hans": ["议员"], "zh_hant": ["議員"], "ru": ["депутат", "сенатор"], "fa": [], "pl": ["poseł", "senator"]},
+    "foreign_minister": {"en": ["Foreign Minister", "Secretary of State", "Foreign Secretary"], "zh_hans": ["外交部长"], "zh_hant": ["外交部長"], "ru": ["министр иностранных дел"], "fa": [], "pl": ["minister spraw zagranicznych"]},
+    "premier": {"en": ["Prime Minister", "Premier"], "zh_hans": ["总理"], "zh_hant": ["總理"], "ru": ["премьер-министр", "председатель правительства"], "fa": [], "pl": ["premier"]},
+    "president": {"en": ["President"], "zh_hans": ["总统"], "zh_hant": ["總統"], "ru": ["президент"], "fa": [], "pl": ["prezydent"]},
+    "speaker": {"en": ["Speaker"], "zh_hans": ["议长"], "zh_hant": ["議長"], "ru": ["спикер", "председатель"], "fa": [], "pl": ["marszałek"]},
+    "special_envoy": {"en": ["Special Envoy", "Envoy"], "zh_hans": ["特使"], "zh_hant": ["特使"], "ru": ["специальный посланник", "спецпосланник"], "fa": [], "pl": ["specjalny wysłannik"]}
+  }
+}

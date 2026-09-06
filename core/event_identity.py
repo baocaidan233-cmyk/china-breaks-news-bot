@@ -97,6 +97,37 @@ nlp = spacy.load("en_core_web_sm")
 # statistical NER alone still falls back to the old (wrong-for-CJK) last-
 # word heuristic, same residual gap a bare gazetteer always has.
 _GAZETTEER_PATH = Path(__file__).parent / "gazetteer_names.json"
+# Non-English spellings of the same high-frequency people above, each paired
+# with that person's existing (English) short_form — 2026-09-06, see that
+# file's own docstring. This is what makes a Chinese/Russian/Polish mention
+# of, say, Wang Yi resolve to the SAME token ("yi") this module already
+# emits for the English "Wang Yi"/"Wang" — closing a real gap found the same
+# day: a Polish article and an English article about the literal same
+# Witkoff/Kushner/Zelensky meeting were judged NO_OVERLAP purely because
+# their entity tokens never matched (event_identity_decisions.jsonl,
+# candidate_url rp.pl vs washingtonpost.com, cosine 0.61 — below
+# no_overlap_llm_review_floor, so no LLM ever got a chance to catch it).
+_MULTILINGUAL_GAZETTEER_PATH = Path(__file__).parent / "gazetteer_multilingual.json"
+
+
+def _all_person_pairs(data: dict, multilingual: dict) -> list[list]:
+    """Every [full_name, short_form] pair this module treats as a PERSON —
+    the four English categories plus every non-English variant category in
+    gazetteer_multilingual.json. A single place to list these so
+    _person_short_form_lookup() and _gazetteer_patterns() can't drift out of
+    sync with each other (they used to inline this same concatenation
+    twice)."""
+    return (
+        data["ccp_leadership"]
+        + data["notable"]
+        + data.get("us_officials", [])
+        + data.get("world_leaders", [])
+        + multilingual.get("ccp_leadership_variants", [])
+        + multilingual.get("notable_variants", [])
+        + multilingual.get("us_officials_variants", [])
+        + multilingual.get("world_leaders_variants", [])
+        + multilingual.get("special_envoys_and_speakers", [])
+    )
 
 
 def _person_short_form_lookup() -> dict[str, tuple[str, ...]]:
@@ -106,13 +137,10 @@ def _person_short_form_lookup() -> dict[str, tuple[str, ...]]:
     patterns from."""
     with open(_GAZETTEER_PATH, encoding="utf-8") as f:
         data = json.load(f)
+    with open(_MULTILINGUAL_GAZETTEER_PATH, encoding="utf-8") as f:
+        multilingual = json.load(f)
     lookup: dict[str, tuple[str, ...]] = {}
-    for full_name, short_form in (
-        data["ccp_leadership"]
-        + data["notable"]
-        + data.get("us_officials", [])
-        + data.get("world_leaders", [])
-    ):
+    for full_name, short_form in _all_person_pairs(data, multilingual):
         if short_form:
             lookup[full_name.lower()] = tuple(_TOKEN_RE.findall(short_form.lower()))
     return lookup
@@ -121,6 +149,8 @@ def _person_short_form_lookup() -> dict[str, tuple[str, ...]]:
 def _gazetteer_patterns() -> list[dict]:
     with open(_GAZETTEER_PATH, encoding="utf-8") as f:
         data = json.load(f)
+    with open(_MULTILINGUAL_GAZETTEER_PATH, encoding="utf-8") as f:
+        multilingual = json.load(f)
     patterns = []
     # ccp_leadership/notable — people. Headlines almost always refer to
     # these by surname/short-form alone ("Xi warns...", "Wang meets..."),
@@ -128,12 +158,7 @@ def _gazetteer_patterns() -> list[dict]:
     # resolved identity — a same-surname collision doesn't make the
     # guessed string wrong, it's still a real, correct actor name either
     # way (same reasoning AM1ST applied to its own Cabinet/notable list).
-    for full_name, short_form in (
-        data["ccp_leadership"]
-        + data["notable"]
-        + data.get("us_officials", [])
-        + data.get("world_leaders", [])
-    ):
+    for full_name, short_form in _all_person_pairs(data, multilingual):
         patterns.append({"label": "PERSON", "pattern": full_name})
         if short_form:
             patterns.append({"label": "PERSON", "pattern": short_form})
@@ -543,9 +568,24 @@ def entity_tokens(text: str) -> set[str]:
             if acronym:
                 tokens.add(acronym)
         words = _TOKEN_RE.findall(cleaned.lower())
-        if ent.label_ == "PERSON" and len(words) > 1:
+        if ent.label_ == "PERSON":
+            # 2026-09-06: the short_form lookup used to be gated behind
+            # `len(words) > 1` — words comes from _TOKEN_RE, which only
+            # matches [a-zA-Z']+, so it's always empty for a CJK/Cyrillic
+            # span regardless of whether that exact name is in the
+            # gazetteer. That silently defeated gazetteer_multilingual.json
+            # entirely: "习近平"/"Путин" would hit this branch with
+            # len(words)==0, skip the lookup, and fall through to the
+            # (also empty) words list — zero tokens emitted for a name this
+            # module explicitly knows how to canonicalize. Checking the
+            # lookup FIRST, independent of what _TOKEN_RE found in the raw
+            # span, is what actually makes a non-Latin gazetteer entry
+            # resolve to the same token as its English counterpart.
             known_short = _PERSON_SHORT_FORMS.get(cleaned.lower())
-            words = list(known_short) if known_short else words[-1:]
+            if known_short:
+                words = list(known_short)
+            elif len(words) > 1:
+                words = words[-1:]
         for tok in words:
             if tok not in _STOPWORDS and len(tok) > 1:
                 tokens.add(tok)
