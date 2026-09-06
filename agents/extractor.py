@@ -40,6 +40,19 @@ _BROWSER_REQUIRED_DOMAINS = (
     "economist.com",
     "bloomberg.com",
     "washingtonpost.com",
+    # news.google.com added 2026-09-06 — a Google News RSS link's landing
+    # page is Google's own interstitial, not the real publisher's article;
+    # the actual redirect only happens client-side via JS, which a plain
+    # httpx GET never executes. A real render follows it through to the
+    # publisher and extracts from there. Unlike the other five domains
+    # above (real bot-detection), this one is a redirect-resolution gap,
+    # not a block — but the fix (route through the render service) is the
+    # same either way. Confirmed as the actual cause of a real production
+    # gap: every Google News candidate in a live publish cycle failed
+    # extraction at 0 chars, starving the publishable pool even though
+    # this feed's own ingestion (unlike AM1ST's) leans heavily on Google
+    # News search feeds for China/CCP coverage.
+    "news.google.com",
 )
 
 # These sites use real bot-detection vendors (DataDome/PerimeterX-class),
