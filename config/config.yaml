@@ -121,10 +121,26 @@ qdrant:
 
 rss:
   # Fetch caps — new versus AM1ST, which reads every entry from every
-  # in_use feed with no limit. Real calibrated values from the old n8n
-  # system's global_config node.
+  # in_use feed with no limit. max_items_per_feed matches the real n8n
+  # system's global_config node value, confirmed both in the 2026-09-04
+  # reading (old v4.0/v3.9 pipelines) and the 2026-09-05 reading (current
+  # live v3.20/v3.17 major/minor split) — unchanged across versions.
+  #
+  # max_total_items was 200 in the old v4.0 pipeline this port was
+  # originally based on, but the CURRENT live system raised it to 500
+  # (confirmed 2026-09-06) — investigating the real editors' recurring
+  # "not enough suitable China news" complaint turned up real evidence
+  # this cap (applied purely by recency across ALL sources, not per-source
+  # or relevance-aware — see agents/rss_fetcher.py's fetch_all) was
+  # letting high-volume, low-relevance general-news sources crowd out the
+  # much rarer genuine China/CCP items during any busy news cycle: a live
+  # keyword-relevance sample across this project's own active source list
+  # found only ~16.5% of raw items are China/CCP-relevant at all, and 106
+  # of 270 sampled sources contributed zero China-relevant items in their
+  # most recent ~50-60 entries. Raised to match what production itself
+  # already self-corrected to.
   max_items_per_feed: 150
-  max_total_items: 200
+  max_total_items: 500
 
 extraction:
   timeout_seconds: 20
@@ -151,9 +167,15 @@ publish:
   posted_dedup_window_hours: 240  # 10 days, matches heat.window_hours
   posted_dedup_threshold: 0.70  # stricter than ingestion's 0.8 — deliberate, fully-autonomous posting errs toward under-posting
 
-# Candidate freshness window — real calibrated value from the old n8n
-# system's global_config node (~6 hours), vs AM1ST's own 3h.
-max_publish_age_hours: 6
+# Candidate freshness window — was 6h, the old v4.0 pipeline's value this
+# port was originally based on (vs AM1ST's own 3h). The CURRENT live
+# system tightened this to 3h (confirmed 2026-09-06, v3.20/v3.17's
+# filter_feed_hours) — paired with raising rss.max_total_items 200->500
+# in the same real system, likely as one combined fix: a narrower window
+# means less redundant/stale volume competing for the raised item cap,
+# so genuinely rare China/CCP items survive the recency-sorted truncation
+# more often. Matched here for the same reason.
+max_publish_age_hours: 3
 poll_interval_seconds: 600  # 10 minutes, matches AM1ST's own cadence
 cycle_timeout_seconds: 540  # 9 min — hard-cuts a stuck cycle so the next one always starts on schedule; AM1ST's own real-world-derived value, inherited
 alert_cooldown_seconds: 21600  # 6h — don't re-@mention for a still-broken source every cycle
