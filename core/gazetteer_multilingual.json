@@ -1,5 +1,5 @@
 {
-  "_comment": "Non-English spellings of the SAME high-frequency people already listed in gazetteer_names.json (English), each paired with the SAME short_form already used there — this is what makes a Chinese/Russian/Polish mention of this person resolve to the identical canonical token entity_tokens() already emits for the English mention, closing the cross-lingual same-event-matching gap found 2026-09-06 (a Polish article and an English article about the literal same Witkoff/Kushner/Zelensky meeting were judged NO_OVERLAP because their entity tokens never matched). Confidence: zh_hans/zh_hant/ru drafted with high confidence (standard press transliterations); fa (Persian) deliberately left empty everywhere below — no independently-verified source for Persian transliteration, do not fill in without one. pl (Polish) is empty for anyone whose name is written identically to the English form in Polish text (true for nearly all CCP/US figures — Polish borrows pinyin for Chinese names and keeps Western Latin names unchanged), and filled in only for the handful of Slavic names Polish actually re-spells (Putin, Zelensky, Lavrov, Mishustin).",
+  "_comment": "Non-English spellings of the SAME high-frequency people already listed in gazetteer_names.json (English), each paired with the SAME short_form already used there — this is what makes a Chinese/Russian/French/etc. mention of this person resolve to the identical canonical token entity_tokens() already emits for the English mention, closing the cross-lingual same-event-matching gap found 2026-09-06. zh_hans/zh_hant/fr/de entries below are exact-match (these languages don't inflect personal names, or China/Breaks' own gazetteer already only needs the bare form) — see 'inflected_stems' for ru/pl, which is a SEPARATE, prefix-matched list because Russian/Polish grammatical case endings (e.g. Russian instrumental 'Путиным', Polish genitive 'Trumpa') change the tail of the word, so an exact-string list would silently miss every declined mention in real running text (confirmed 2026-09-06: real log data had 'Witkoffem'/'Zełenskiego'/'Trumpa', none of which matched the exact nominative forms first tried). fa (Persian) deliberately left empty everywhere — no independently-verified transliteration source, do not fill in without one. Chinese (zh_hans/zh_hant) matching additionally requires a CJK word-segmentation step before these patterns can ever fire on real running text — see event_identity.py's own note on this; not yet wired in as of this file's last edit.",
   "roles": {
     "_comment": "Reference only — NOT consumed by entity_tokens()/event matching. English-language role tag per person, for editorial/prompt reference.",
     "Xi Jinping": "President of the PRC / CCP General Secretary",
@@ -28,52 +28,72 @@
     "Narendra Modi": "Prime Minister of India",
     "Emmanuel Macron": "President of France",
     "Keir Starmer": "Prime Minister of the United Kingdom",
-    "Ursula von der Leyen": "President, European Commission"
+    "Ursula von der Leyen": "President, European Commission",
+    "Friedrich Merz": "Chancellor of Germany",
+    "Annalena Baerbock": "Foreign Minister of Germany (2021-2025 term)",
+    "Jean-Noel Barrot": "Foreign Minister of France"
   },
   "ccp_leadership_variants": [
-    ["习近平", "Xi"], ["習近平", "Xi"], ["Си Цзиньпин", "Xi"],
-    ["李强", "Li Qiang"], ["李強", "Li Qiang"], ["Ли Цян", "Li Qiang"],
-    ["王毅", "Wang Yi"], ["Ван И", "Wang Yi"],
-    ["韩正", "Han"], ["韓正", "Han"], ["Хань Чжэн", "Han"],
-    ["赵乐际", "Zhao"], ["趙樂際", "Zhao"], ["Чжао Лэцзи", "Zhao"],
-    ["张又侠", "Zhang Youxia"], ["張又俠", "Zhang Youxia"], ["Чжан Юся", "Zhang Youxia"],
-    ["丁薛祥", "Ding"], ["Дин Сюэсян", "Ding"],
-    ["蔡奇", "Cai"], ["Цай Ци", "Cai"],
-    ["王沪宁", "Wang Huning"], ["王滬寧", "Wang Huning"], ["Ван Хунин", "Wang Huning"],
-    ["何立峰", "He Lifeng"], ["Хэ Лифэн", "He Lifeng"]
+    ["习近平", "Xi"], ["習近平", "Xi"],
+    ["李强", "Li Qiang"], ["李強", "Li Qiang"],
+    ["王毅", "Wang Yi"],
+    ["韩正", "Han"], ["韓正", "Han"],
+    ["赵乐际", "Zhao"], ["趙樂際", "Zhao"],
+    ["张又侠", "Zhang Youxia"], ["張又俠", "Zhang Youxia"],
+    ["丁薛祥", "Ding"],
+    ["蔡奇", "Cai"],
+    ["王沪宁", "Wang Huning"], ["王滬寧", "Wang Huning"],
+    ["何立峰", "He Lifeng"]
   ],
   "notable_variants": [
-    ["普京", "Putin"], ["Путин", "Putin"], ["Владимир Путин", "Putin"], ["Władimir Putin", "Putin"],
-    ["拉夫罗夫", "Lavrov"], ["Лавров", "Lavrov"], ["Сергей Лавров", "Lavrov"], ["Siergiej Ławrow", "Lavrov"],
-    ["米舒斯京", "Mishustin"], ["Мишустин", "Mishustin"], ["Михаил Мишустин", "Mishustin"], ["Michaił Miszustin", "Mishustin"]
+    ["普京", "Putin"],
+    ["拉夫罗夫", "Lavrov"],
+    ["米舒斯京", "Mishustin"]
   ],
   "us_officials_variants": [
-    ["特朗普", "Trump"], ["川普", "Trump"], ["Трамп", "Trump"], ["Дональд Трамп", "Trump"],
-    ["万斯", "Vance"], ["Вэнс", "Vance"],
-    ["鲁比奥", "Rubio"], ["魯比歐", "Rubio"], ["Рубио", "Rubio"],
-    ["海格塞斯", "Hegseth"], ["Хегсет", "Hegseth"],
-    ["贝森特", "Bessent"], ["Бессент", "Bessent"]
+    ["特朗普", "Trump"], ["川普", "Trump"],
+    ["万斯", "Vance"],
+    ["鲁比奥", "Rubio"], ["魯比歐", "Rubio"],
+    ["海格塞斯", "Hegseth"],
+    ["贝森特", "Bessent"]
   ],
   "world_leaders_variants": [
-    ["泽连斯基", "Zelenskyy"], ["澤倫斯基", "Zelenskyy"], ["Зеленский", "Zelenskyy"], ["Владимир Зеленский", "Zelenskyy"], ["Wołodymyr Zełenski", "Zelenskyy"], ["Zełenski", "Zelenskyy"],
-    ["金正恩", "Kim"], ["Ким Чен Ын", "Kim"],
-    ["莫迪", "Modi"], ["Моди", "Modi"],
-    ["马克龙", "Macron"], ["馬克龍", "Macron"], ["Макрон", "Macron"],
-    ["斯塔默", "Starmer"], ["Стармер", "Starmer"],
-    ["冯德莱恩", "von der Leyen"], ["馮德萊恩", "von der Leyen"], ["фон дер Ляйен", "von der Leyen"]
+    ["泽连斯基", "Zelenskyy"], ["澤倫斯基", "Zelenskyy"],
+    ["金正恩", "Kim"],
+    ["莫迪", "Modi"],
+    ["马克龙", "Macron"], ["馬克龍", "Macron"],
+    ["斯塔默", "Starmer"],
+    ["冯德莱恩", "von der Leyen"], ["馮德萊恩", "von der Leyen"],
+    ["Friedrich Merz", "Merz"], ["默茨", "Merz"], ["默茲", "Merz"],
+    ["Annalena Baerbock", "Baerbock"], ["贝尔伯克", "Baerbock"], ["貝爾伯克", "Baerbock"],
+    ["Jean-Noel Barrot", "Barrot"], ["巴罗", "Barrot"]
   ],
   "special_envoys_and_speakers": [
-    ["Steve Witkoff", "Witkoff"], ["威特科夫", "Witkoff"], ["Уиткофф", "Witkoff"], ["Стивен Уиткофф", "Witkoff"],
-    ["Jared Kushner", "Kushner"], ["库什纳", "Kushner"], ["Кушнер", "Kushner"], ["Джаред Кушнер", "Kushner"],
-    ["Mike Johnson", "Johnson"], ["迈克·约翰逊", "Johnson"], ["约翰逊", "Johnson"], ["Джонсон", "Johnson"]
+    ["Steve Witkoff", "Witkoff"], ["威特科夫", "Witkoff"],
+    ["Jared Kushner", "Kushner"], ["库什纳", "Kushner"],
+    ["Mike Johnson", "Johnson"], ["迈克·约翰逊", "Johnson"], ["约翰逊", "Johnson"]
   ],
+  "inflected_stems": {
+    "_comment": "[stem, short_form] pairs matched as a REGEX PREFIX (^stem), not exact strings — for Russian/Polish, whose grammatical case endings get appended to a name's stem (Putin -> Путина/Путину/Путиным/Путине; Trump -> Trumpa/Trumpowi/Trumpem). A single stem entry covers every declined form without needing to enumerate all 6 Russian / 7 Polish cases by hand. Known residual gap: this only helps when the case ending is ADDED to the stem, not when the final vowel itself changes (e.g. a Polish '-o' ending name like Rubio might become 'Rubia' in genitive, which this stem form won't catch) — narrower than a real morphological analyzer, but covers the common consonant-stem case that caused the real misses found 2026-09-06 (Witkoffem, Zełenskiego, Trumpa all match their stems below).",
+    "ru": [
+      ["путин", "Putin"], ["лавров", "Lavrov"], ["мишустин", "Mishustin"],
+      ["трамп", "Trump"], ["вэнс", "Vance"], ["хегсет", "Hegseth"], ["бессент", "Bessent"],
+      ["уиткофф", "Witkoff"], ["кушнер", "Kushner"], ["джонсон", "Johnson"],
+      ["зеленск", "Zelenskyy"], ["макрон", "Macron"], ["стармер", "Starmer"]
+    ],
+    "pl": [
+      ["putin", "Putin"], ["ławrow", "Lavrov"], ["miszustin", "Mishustin"],
+      ["trump", "Trump"], ["witkoff", "Witkoff"], ["kushner", "Kushner"],
+      ["johnson", "Johnson"], ["zełensk", "Zelenskyy"], ["macron", "Macron"], ["starmer", "Starmer"]
+    ]
+  },
   "role_terms_reference": {
     "_comment": "Multilingual glossary of the 6 role categories, per user's request — NOT wired into entity_tokens()/matching (a bare role word like '外交部长' shared between two articles about two different foreign ministers would cause false same-event merges if used as a matching token; GPT-4o-mini already understands these roles natively in every language when scoring/writing, so this table's real use is as an editorial/human reference, or a future building block if a different feature needs it). fa left empty, no verified source.",
-    "mp": {"en": ["MP", "Member of Parliament", "Senator", "Congressman", "Congresswoman", "Representative"], "zh_hans": ["议员"], "zh_hant": ["議員"], "ru": ["депутат", "сенатор"], "fa": [], "pl": ["poseł", "senator"]},
-    "foreign_minister": {"en": ["Foreign Minister", "Secretary of State", "Foreign Secretary"], "zh_hans": ["外交部长"], "zh_hant": ["外交部長"], "ru": ["министр иностранных дел"], "fa": [], "pl": ["minister spraw zagranicznych"]},
-    "premier": {"en": ["Prime Minister", "Premier"], "zh_hans": ["总理"], "zh_hant": ["總理"], "ru": ["премьер-министр", "председатель правительства"], "fa": [], "pl": ["premier"]},
-    "president": {"en": ["President"], "zh_hans": ["总统"], "zh_hant": ["總統"], "ru": ["президент"], "fa": [], "pl": ["prezydent"]},
-    "speaker": {"en": ["Speaker"], "zh_hans": ["议长"], "zh_hant": ["議長"], "ru": ["спикер", "председатель"], "fa": [], "pl": ["marszałek"]},
-    "special_envoy": {"en": ["Special Envoy", "Envoy"], "zh_hans": ["特使"], "zh_hant": ["特使"], "ru": ["специальный посланник", "спецпосланник"], "fa": [], "pl": ["specjalny wysłannik"]}
+    "mp": {"en": ["MP", "Member of Parliament", "Senator", "Congressman", "Congresswoman", "Representative"], "zh_hans": ["议员"], "zh_hant": ["議員"], "ru": ["депутат", "сенатор"], "fa": [], "pl": ["poseł", "senator"], "fr": ["député", "sénateur"], "de": ["Abgeordneter", "Bundestagsabgeordneter"]},
+    "foreign_minister": {"en": ["Foreign Minister", "Secretary of State", "Foreign Secretary"], "zh_hans": ["外交部长"], "zh_hant": ["外交部長"], "ru": ["министр иностранных дел"], "fa": [], "pl": ["minister spraw zagranicznych"], "fr": ["ministre des Affaires étrangères"], "de": ["Außenminister"]},
+    "premier": {"en": ["Prime Minister", "Premier"], "zh_hans": ["总理"], "zh_hant": ["總理"], "ru": ["премьер-министр", "председатель правительства"], "fa": [], "pl": ["premier"], "fr": ["premier ministre"], "de": ["Bundeskanzler", "Kanzler"]},
+    "president": {"en": ["President"], "zh_hans": ["总统"], "zh_hant": ["總統"], "ru": ["президент"], "fa": [], "pl": ["prezydent"], "fr": ["président"], "de": ["Präsident"]},
+    "speaker": {"en": ["Speaker"], "zh_hans": ["议长"], "zh_hant": ["議長"], "ru": ["спикер", "председатель"], "fa": [], "pl": ["marszałek"], "fr": ["président de l'Assemblée"], "de": ["Bundestagspräsident"]},
+    "special_envoy": {"en": ["Special Envoy", "Envoy"], "zh_hans": ["特使"], "zh_hant": ["特使"], "ru": ["специальный посланник", "спецпосланник"], "fa": [], "pl": ["specjalny wysłannik"], "fr": ["envoyé spécial"], "de": ["Sondergesandter"]}
   }
 }

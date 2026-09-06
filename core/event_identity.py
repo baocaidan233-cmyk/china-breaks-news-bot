@@ -146,6 +146,24 @@ def _person_short_form_lookup() -> dict[str, tuple[str, ...]]:
     return lookup
 
 
+def _person_stem_short_forms() -> list[tuple[str, tuple[str, ...]]]:
+    """(lowercased stem, short_form word tokens) pairs for Russian/Polish
+    inflected names — see gazetteer_multilingual.json's "inflected_stems"
+    docstring. Sorted longest-stem-first so a more specific stem (e.g.
+    "зеленск") is tried before any shorter, more generic one could ever
+    accidentally shadow it — no actual collision in today's list, but cheap
+    to guard against as the list grows."""
+    with open(_MULTILINGUAL_GAZETTEER_PATH, encoding="utf-8") as f:
+        multilingual = json.load(f)
+    stems = multilingual.get("inflected_stems", {})
+    pairs = [
+        (stem.lower(), tuple(_TOKEN_RE.findall(short_form.lower())))
+        for lang_stems in (stems.get("ru", []), stems.get("pl", []))
+        for stem, short_form in lang_stems
+    ]
+    return sorted(pairs, key=lambda p: len(p[0]), reverse=True)
+
+
 def _gazetteer_patterns() -> list[dict]:
     with open(_GAZETTEER_PATH, encoding="utf-8") as f:
         data = json.load(f)
@@ -162,6 +180,12 @@ def _gazetteer_patterns() -> list[dict]:
         patterns.append({"label": "PERSON", "pattern": full_name})
         if short_form:
             patterns.append({"label": "PERSON", "pattern": short_form})
+    # Russian/Polish inflected stems — one token whose text starts with the
+    # stem (case-insensitive), covering every grammatical case ending
+    # without enumerating them (e.g. "путин" matches "Путина"/"Путину"/
+    # "Путиным"/"Путине" as well as the bare nominative).
+    for stem, _short_form in multilingual.get("inflected_stems", {}).get("ru", []) + multilingual.get("inflected_stems", {}).get("pl", []):
+        patterns.append({"label": "PERSON", "pattern": [{"TEXT": {"REGEX": f"(?i)^{re.escape(stem)}"}}]})
     # state_media — organizations, not people. Tagged ORG (not PERSON) so
     # entity_tokens()'s PERSON-only "keep last word" truncation never
     # applies to these — that truncation would otherwise mangle an org
@@ -196,6 +220,7 @@ _STOPWORDS = {
 _TOKEN_RE = re.compile(r"[a-zA-Z']+")
 _TRAILING_POSSESSIVE_RE = re.compile(r"’s$|'s$")
 _PERSON_SHORT_FORMS = _person_short_form_lookup()
+_PERSON_STEM_SHORT_FORMS = _person_stem_short_forms()
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
@@ -581,7 +606,16 @@ def entity_tokens(text: str) -> set[str]:
             # lookup FIRST, independent of what _TOKEN_RE found in the raw
             # span, is what actually makes a non-Latin gazetteer entry
             # resolve to the same token as its English counterpart.
-            known_short = _PERSON_SHORT_FORMS.get(cleaned.lower())
+            cleaned_lower = cleaned.lower()
+            known_short = _PERSON_SHORT_FORMS.get(cleaned_lower)
+            if not known_short:
+                # Russian/Polish inflected form (e.g. "путиным",
+                # "witkoffem") — no exact match, but its stem does; see
+                # gazetteer_multilingual.json's "inflected_stems".
+                for stem, short in _PERSON_STEM_SHORT_FORMS:
+                    if cleaned_lower.startswith(stem):
+                        known_short = short
+                        break
             if known_short:
                 words = list(known_short)
             elif len(words) > 1:
