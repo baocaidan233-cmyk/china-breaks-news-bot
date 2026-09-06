@@ -20,7 +20,7 @@ Pipeline order per cycle (cheapest filter first — mechanism identical to
 AM1ST, only the domain and a handful of tuning numbers differ, see
 core/config.py):
   load sources (Notion) -> fetch RSS (UTC-normalized, max_publish_age_hours
-  publish-age filter, each feed capped at rss.max_items_per_feed) -> URL-hash Redis dedup
+  publish-age filter, no per-feed or cross-source caps) -> URL-hash Redis dedup
   -> intra-batch semantic CLUSTERING (title+description; groups this
   batch's own candidates into local event clusters, not just a drop/keep
   decision — see Layer 2 below) -> per cluster: read-only peek at

@@ -379,23 +379,6 @@ class QdrantConfig(BaseModel):
     timeout_seconds: int = 15  # AsyncQdrantClient has no timeout by default — AM1ST hit a real stalled-request hang without this; ported as a preventive default
 
 
-class RssConfig(BaseModel):
-    """Per-feed cap — matches the real n8n system's global_config node
-    value, carried over as this bot's starting default: cap each
-    individual feed at max_items_per_feed entries.
-
-    There is deliberately no overall cross-source cap (removed 2026-09-06,
-    matching AM1ST, which never had one) — this channel's own source pool
-    is dominated by general-news outlets where a live sample found only
-    ~16.5% of raw items are China/CCP-relevant, and an aggregate
-    recency-sorted cutoff was discarding exactly those rare relevant items
-    on any busy news day, with no regard for relevance. The Redis/semantic
-    dedup layers and the LLM score gate are what should decide which
-    candidates survive, not a blind truncation before they're ever seen."""
-
-    max_items_per_feed: int = 150
-
-
 class ExtractionConfig(BaseModel):
     """No external service — see agents/extractor.py's docstring for why
     (the old n8n-svr extract-premium service is unmaintained and broken for
@@ -453,14 +436,14 @@ class AppConfig(BaseModel):
     hot_topics: HotTopicsConfig = Field(default_factory=HotTopicsConfig)
     heat: HeatConfig = Field(default_factory=HeatConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
-    rss: RssConfig = Field(default_factory=RssConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     gettr: GettrConfig = Field(default_factory=GettrConfig)
     publish: PublishConfig = Field(default_factory=PublishConfig)
-    # Candidate freshness window — real calibrated value from the old n8n
-    # system's global_config node (~6 hours), vs AM1ST's own 3h. Carried
-    # over as this bot's starting default, not guessed.
-    max_publish_age_hours: int = 6
+    # Candidate freshness window — matches AM1ST's own 3h (the old n8n
+    # system's global_config node value was 6h in the version this port
+    # was originally based on, but the current live system tightened it
+    # to 3h too, confirmed 2026-09-06).
+    max_publish_age_hours: int = 3
     poll_interval_seconds: int = 600
     cycle_timeout_seconds: int = 540  # 9 min — hard-cuts a stuck cycle so the next one always starts on schedule (main.py and main_publish.py loops both apply this, independently) — AM1ST's own real-world-derived value, inherited
     alert_cooldown_seconds: int = 21600

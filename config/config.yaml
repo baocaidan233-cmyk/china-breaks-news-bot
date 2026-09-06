@@ -119,26 +119,20 @@ qdrant:
   cleanup_retention_days: 10  # for the separate, not-yet-built daily cleanup job
   timeout_seconds: 15  # AsyncQdrantClient has no timeout by default — AM1ST hit a real stalled-request hang without this; ported as a preventive default
 
-rss:
-  # Per-feed cap — matches the real n8n system's global_config node value,
-  # confirmed both in the 2026-09-04 reading (old v4.0/v3.9 pipelines) and
-  # the 2026-09-05 reading (current live v3.20/v3.17 major/minor split) —
-  # unchanged across versions.
-  #
-  # No overall cross-source cap (removed 2026-09-06, matching AM1ST, which
-  # never had one) — investigating the real editors' recurring "not enough
-  # suitable China news" complaint turned up real evidence this cap
-  # (applied purely by recency across ALL sources, not per-source or
-  # relevance-aware — see agents/rss_fetcher.py's fetch_all) was letting
-  # high-volume, low-relevance general-news sources crowd out the much
-  # rarer genuine China/CCP items during any busy news cycle: a live
-  # keyword-relevance sample across this project's own active source list
-  # found only ~16.5% of raw items are China/CCP-relevant at all, and 106
-  # of 270 sampled sources contributed zero China-relevant items in their
-  # most recent ~50-60 entries. User's call: the pipeline's existing
-  # Redis/semantic dedup layers and LLM score gate are what should decide
-  # which candidates survive, not a blind pre-scoring truncation.
-  max_items_per_feed: 150
+# No RSS fetch caps of any kind (removed 2026-09-06, matching AM1ST) — no
+# per-feed limit and no overall cross-source limit. Both existed only
+# because the old n8n global_config node this port was based on had
+# equivalent fields; neither was something AM1ST's own architecture has
+# or the user ever asked for. Investigating the real editors' recurring
+# "not enough suitable China news" complaint found the cross-source cap
+# was a real contributing cause (purely recency-sorted, not relevance
+# -aware — a live sample found only ~16.5% of this project's own active
+# source pool's raw items are China/CCP-relevant, so a blind cutoff was
+# discarding exactly the rare relevant ones on busy news days). User's
+# call, generalized to both caps: the pipeline's existing Redis/semantic
+# dedup layers and LLM score gate are what should decide which candidates
+# survive, not a truncation before they're ever seen — see
+# feedback_no_unrequested_caps memory.
 
 extraction:
   timeout_seconds: 20

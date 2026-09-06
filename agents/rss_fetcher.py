@@ -78,7 +78,7 @@ def _parse_published_utc(entry) -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def fetch_source(client: httpx.AsyncClient, source: RssSource, max_items: int) -> list[Candidate]:
+async def fetch_source(client: httpx.AsyncClient, source: RssSource) -> list[Candidate]:
     try:
         resp = await client.get(source.feed_url)
         resp.raise_for_status()
@@ -100,15 +100,11 @@ async def fetch_source(client: httpx.AsyncClient, source: RssSource, max_items: 
 
     parsed = feedparser.parse(content)
     candidates = []
-    # Per-feed cap (config.rss.max_items_per_feed) — new versus AM1ST,
-    # which reads every entry with no limit. Real calibrated value from
-    # the old n8n system's global_config node. RSS feeds are conventionally
-    # newest-first, so truncating to the first `max_items` entries keeps
-    # the most recent ones — a plain, cheap ordering assumption, not a
-    # sort (feedparser doesn't guarantee input order is chronological for
-    # every feed, but this matches the old n8n system's own behavior and
-    # costs nothing extra).
-    for entry in parsed.entries[:max_items]:
+    # No per-feed cap (removed 2026-09-06, matching AM1ST) — reads every
+    # entry a feed returns; the freshness filter in fetch_all() and the
+    # pipeline's own dedup/score-gate layers are what should decide which
+    # candidates survive, not a truncation at fetch time.
+    for entry in parsed.entries:
         url = entry.get("link", "")
         if not url:
             continue
@@ -133,9 +129,7 @@ async def fetch_all(config: AppConfig, sources: list[RssSource]) -> list[Candida
 
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=FEED_HEADERS) as client:
         # All sources read concurrently, once per cycle — no rotation.
-        per_source = await asyncio.gather(
-            *(fetch_source(client, s, config.rss.max_items_per_feed) for s in sources)
-        )
+        per_source = await asyncio.gather(*(fetch_source(client, s) for s in sources))
     results = [c for batch in per_source for c in batch]
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=config.max_publish_age_hours)
