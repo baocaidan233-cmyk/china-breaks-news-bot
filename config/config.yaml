@@ -43,16 +43,18 @@ notion:
     heat_score: "heat_score"
     event_first_seen_at: "event_first_seen_at"
     is_hot: "is_hot"
+    extraction_failed: "extraction_failed"  # NOT in the confirmed real schema, ported from AM1ST 2026-09-06 — add this column before use, same as the three above
   hot_topics_props:
     name: "Name"
     channel: "Channel"
     active: "In_Use"
 
 redis:
-  # Real production URL-hash dedup key prefix already in use by the live
-  # n8n system, confirmed 2026-09-04 — deliberately reused, not a fresh
-  # namespace, so this bot recognizes URLs the still-running old system
-  # already claimed the moment it starts running.
+  # NOT the real production prefix — real production (confirmed 2026-09-05
+  # from the live n8n system's own Redis credential) uses
+  # "newsroom:cnbreaks:url_hash:". This project deliberately uses a
+  # different namespace so this bot's own test-phase dedup state doesn't
+  # share history with the still-running production system; see README.
   key_prefix: "newsroom:chinabreaks:url_hash:"
   ttl_seconds: 864000  # 10 days — standing dedup architecture default, unchanged from AM1ST
 
@@ -61,6 +63,7 @@ openai:
   embedding_model: "text-embedding-3-small"
   scoring_prompt_file: "prompts/scoring_prompt.txt"
   content_gen_prompt_file: "prompts/content_gen_prompt.txt"
+  staleness_check_prompt_file: "prompts/staleness_check_prompt.txt"  # agents/staleness_checker.py, ported from AM1ST 2026-09-06
   # Ingestion-side AI score gate — real calibrated value from the old n8n
   # system's global_config node (effectively "score > 3", i.e. minimum
   # passing score of 4) — much looser than AM1ST's own >=5 gate.
@@ -151,13 +154,31 @@ publish:
   candidate_min_score: 4.0     # Notion query floor (lower of weekday/weekend below)
   weekday_min_score: 5.0
   weekend_min_score: 4.0
-  candidate_max_age_hours: 12
+  candidate_max_age_hours: 24  # Notion query ceiling — the WIDER of weekday/weekend below, see core/config.py's PublishConfig docstring
+  weekday_max_age_hours: 12   # ported from AM1ST 2026-09-06
+  weekend_max_age_hours: 24   # ported from AM1ST 2026-09-06 — unverified for this feed's own source mix, see core/config.py
   fresh_hours: 4
   batch_min: 3
   batch_max: 10
   priority_rank_prompt_file: "prompts/priority_rank_prompt.txt"
   posted_dedup_window_hours: 240  # 10 days, matches heat.window_hours
   posted_dedup_threshold: 0.70  # stricter than ingestion's 0.8 — deliberate, fully-autonomous posting errs toward under-posting
+  max_widen_attempts: 3  # ported from AM1ST 2026-09-06 — see core/config.py's PublishConfig docstring
+  staleness_check_hours_floor: 72  # ported from AM1ST 2026-09-06
+
+# Automatic publish-cadence scaling, ported from AM1ST 2026-09-06 — see
+# core/config.py's DynamicPublishConfig docstring for the full rationale
+# and why quiet_count/busy_count are unverified placeholders for this
+# project's own volume profile.
+dynamic_publish:
+  hot_score_floor: 8.0
+  lookback_hours: 2.0
+  quiet_count: 1
+  busy_count: 8
+  quiet_scale: 1.3
+  busy_scale: 0.6
+  min_interval_seconds: 900
+  max_interval_seconds: 2340
 
 # Candidate freshness window — was 6h, the old v4.0 pipeline's value this
 # port was originally based on (vs AM1ST's own 3h). The CURRENT live

@@ -83,6 +83,7 @@ class NotionCandidateProps(BaseModel):
     heat_score: str = "heat_score"  # number — NOT in the confirmed real schema, see class docstring; corroboration signal, see HeatConfig
     event_first_seen_at: str = "event_first_seen_at"  # date — NOT in the confirmed real schema, see class docstring
     is_hot: str = "is_hot"  # checkbox — NOT in the confirmed real schema, see class docstring; set from the manual hot-topic flag match, see HotTopicsConfig
+    extraction_failed: str = "extraction_failed"  # checkbox — ported from AM1ST (added 2026-09-05 there): set once by main_publish.py the first time full-text extraction fails for this candidate; a permanent exclusion, not a retry-later flag. NOT in the confirmed real schema — needs adding to the real Notion database before use, same as heat_score/event_first_seen_at/is_hot above
 
 
 class NotionHotTopicProps(BaseModel):
@@ -150,6 +151,7 @@ class OpenAIConfig(BaseModel):
     embedding_model: str = "text-embedding-3-small"
     scoring_prompt_file: str = "prompts/scoring_prompt.txt"
     content_gen_prompt_file: str = "prompts/content_gen_prompt.txt"
+    staleness_check_prompt_file: str = "prompts/staleness_check_prompt.txt"  # agents/staleness_checker.py — deliberately a separate call from Writer, not folded into content_gen_prompt.txt (ported from AM1ST, see StalenessChecker's docstring for why three attempts at doing this inside one Writer call all failed)
     # Ingestion-side AI score gate — real calibrated value from the old
     # n8n system's global_config node (effectively "score > 3", i.e. a
     # minimum passing score of 4) — much looser than AM1ST's own >=5 gate.
@@ -418,13 +420,61 @@ class PublishConfig(BaseModel):
     candidate_min_score: float = 4.0  # Notion query floor — see class docstring's "shifted down by 1" note
     weekday_min_score: float = 5.0  # weekdays: heavier real news volume, prefer this floor first — see class docstring
     weekend_min_score: float = 4.0  # weekends: lighter volume, use this floor directly — see class docstring
-    candidate_max_age_hours: int = 12  # candidate pool eligibility window
+    candidate_max_age_hours: int = 24  # Notion query ceiling — the WIDER of weekday/weekend_max_age_hours below, so weekend-eligible candidates aren't excluded before select_batch() even sees them; select_batch() applies the actual day-aware ceiling on top (ported from AM1ST 2026-09-06, ceiling widened from a flat 12h — see class docstring)
+    weekday_max_age_hours: int = 12  # weekdays: heavy real news volume — keep the original "same-day news" freshness rule
+    weekend_max_age_hours: int = 24  # weekends: real volume is much lower — widened so a Friday-night story is still eligible through Saturday instead of the pool running thin/empty. AM1ST's own choice was US/Eastern-weekend-calibrated; this project's own source pool skews Western-wire-service-heavy too, but unverified for this feed specifically — revisit once real volume data exists
     fresh_hours: int = 4  # freshness tier line used by the batch-selection cascade
     batch_min: int = 3
     batch_max: int = 10
     priority_rank_prompt_file: str = "prompts/priority_rank_prompt.txt"
     posted_dedup_window_hours: int = 240  # 10 days — matches heat.window_hours so both "have we already covered this" checks agree on how long an event stays "recent"
     posted_dedup_threshold: float = 0.70  # stricter than the ingestion side's 0.8 — deliberate: fully autonomous posting should err toward under-posting
+    max_widen_attempts: int = 3  # ported from AM1ST 2026-09-06 — how many batch_max-sized chunks of the eligible pool to try before accepting "nothing to publish this cycle" as real, not just "the first batch_max happened to all be duplicates"; each attempt costs a real extraction+content-gen pass, so this isn't unbounded search over the whole pool
+    staleness_check_hours_floor: int = 72  # ported from AM1ST 2026-09-06 — agents/staleness_checker.py's LLM call only runs when event_first_seen_at is at least this old; reuses dedup.cross_cycle_window_hours' existing 72h convention rather than picking a new number, keeping this an infrequent extra cost rather than doubling the LLM calls made for every candidate
+
+
+class DynamicPublishConfig(BaseModel):
+    """Automatic publish-cadence scaling — ported from AM1ST 2026-09-06,
+    after AM1ST's own multi-day production test of it. Distinct from
+    hot_topics.py's manual fast lane (a human flags one specific story as
+    breaking); this instead reacts to how much genuinely strong material
+    the ingestion side is producing right now, with no human involved.
+    Signal: count of candidates newly added to the Notion pool in the last
+    lookback_hours with llm_score >= hot_score_floor (reusing
+    prompts/scoring_prompt.txt's own "8 — Major real-time trigger" band as
+    the floor, not an arbitrary new cutoff) — a cheap, existence-count-only
+    Notion query, same cost shape as hot_topics.py's
+    has_unpublished_hot_candidate().
+
+    AM1ST's own thresholds (hot_score_floor/quiet_count/busy_count) were
+    calibrated from a real 33.5-hour, 956-candidate sample of ITS OWN
+    US-politics RSS volume — NOT independently valid for this project's
+    CCP-exposure source pool, which almost certainly has a different
+    volume profile. The class/mechanism is ported now (portable regardless
+    of topic); quiet_count/busy_count below are placeholders carried over
+    as a starting point, not a calibrated fact — recalibrate once real
+    chinabreaks candidate-volume data exists, the same way AM1ST's own
+    numbers were derived.
+
+    quiet_scale/max_interval_seconds reflect AM1ST's OWN reverted final
+    state (2026-09-06): an earlier, more aggressive version added a DEAD
+    tier (count==0) that could stretch the wait to 4 hours — AM1ST's user
+    tested this in production and rejected it, wanting every cycle checked
+    and, if warranted, published within a strict 15-39min band regardless
+    of how thin the pool is. A genuinely empty cycle is instead handled by
+    run_cycle()'s widen-on-empty giving up and publishing nothing for that
+    cycle (see publish.max_widen_attempts), not by the wait itself growing
+    long. Ported the reverted-to-simple state directly, not the
+    intermediate DEAD-tier version."""
+
+    hot_score_floor: float = 8.0
+    lookback_hours: float = 2.0
+    quiet_count: int = 1  # <= this many (but not zero) -> slow down — AM1ST's own real p25, unverified placeholder here
+    busy_count: int = 8  # >= this many -> speed up — AM1ST's own real p75, unverified placeholder here
+    quiet_scale: float = 1.3  # 30min base -> 39min
+    busy_scale: float = 0.6  # 30min base -> ~18min
+    min_interval_seconds: int = 900  # 15 min floor — never faster than this regardless of volume
+    max_interval_seconds: int = 2340  # 39 min ceiling — an empty cycle publishes nothing instead of the interval stretching further, see docstring
 
 
 class AppConfig(BaseModel):
@@ -439,6 +489,7 @@ class AppConfig(BaseModel):
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     gettr: GettrConfig = Field(default_factory=GettrConfig)
     publish: PublishConfig = Field(default_factory=PublishConfig)
+    dynamic_publish: DynamicPublishConfig = Field(default_factory=DynamicPublishConfig)
     # Candidate freshness window — matches AM1ST's own 3h (the old n8n
     # system's global_config node value was 6h in the version this port
     # was originally based on, but the current live system tightened it

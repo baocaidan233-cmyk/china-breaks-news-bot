@@ -2,144 +2,168 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+import math
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import BaseModel, ValidationError
-
+from agents.embedder import Embedder
 from core.config import AppConfig
+from core.hashing import cosine_similarity
 from core.models import PublishCandidate
-from core.openai_client import create_openai_client
 
 logger = logging.getLogger(__name__)
 
-_FENCE_RE = re.compile(r"```json|```")
-_SMART_QUOTES_RE = re.compile(r"[“”]")
+_LOG_PATH = Path("logs/priority_rank_decisions.jsonl")
+
+# Trending-overlap cosine thresholds — carried over from
+# core/hot_topics.py's HotTopicsConfig.match_threshold (0.5), which this
+# project already independently uses (not a value copied over just for
+# this ranker). 0.65 is a second, higher band for an unusually tight
+# match, ported from AM1ST's own value — not independently validated on
+# this project's own embeddings, a reasonable starting point.
+_TRENDING_SIM_HIGH = 0.65
+_TRENDING_SIM_LOW = 0.5
+
+# Freshness decay coefficient — logarithmic, not linear: a
+# candidate_max_age_hours-old story loses a bounded amount, an hour-old
+# story loses ~1, an 18-minutes-old story loses ~0.14 — proportionate to
+# the ~5-11 range llm_score+trending_bonus produces, without dominating
+# it. Ported from AM1ST's own value — a generic curve-shape constant, not
+# content-calibrated, so no adaptation needed.
+_FRESHNESS_DECAY_K = 1.5
 
 
-class _RankEntry(BaseModel):
-    id: str
-    priority_score: float
+def _log_decision(record: dict) -> None:
+    """Same append-only JSONL convention as core/event_identity.py's
+    log_decision(), kept separate (own file, own module) since this isn't
+    an event-identity decision — it's the publish-time ranking breakdown,
+    recorded so this formula's real behavior can be reviewed once this
+    project has its own real publish-cycle history, the same way AM1ST
+    used its own log to find and fix this formula's heat_score
+    double-counting bug (see class docstring)."""
+    try:
+        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        full = {"logged_at": int(time.time()), **record}
+        with _LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(full, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.exception("PriorityRanker: failed to log decision — continuing (fail open)")
+
+
+def log_publish_outcome(batch_size: int, winner: PublishCandidate | None) -> None:
+    """Called once per publish cycle, after find_publishable() resolves —
+    links the per-candidate breakdowns above to what actually got
+    published (or didn't), so a review can walk
+    logs/priority_rank_decisions.jsonl and see both "how was this batch
+    scored" and "which one won" without cross-referencing main_publish's
+    own log."""
+    _log_decision({
+        "check_type": "publish_outcome",
+        "batch_size": batch_size,
+        "winner_page_id": winner.page_id if winner else None,
+        "winner_url": winner.url if winner else None,
+        "winner_priority_score": winner.priority_score if winner else None,
+    })
 
 
 class PriorityRanker:
-    """Second, independent LLM pass on top of the batch agents/candidate_selector.py
-    picked — prompts/priority_rank_prompt.txt is this project's own
-    CCP-exposure rubric (adapted from AM1ST's own prompt of the same
-    role/mechanism, domain flavor swapped from America First to China/CCP
-    context), ranking on post_content itself (not title+description,
-    which is what the ingestion-side llm_score used).
+    """Formula-based priority ranking (2026-09-06, ported from AM1ST's own
+    2026-09-04 rewrite, replacing the previous LLM-based holistic 1-10
+    rank call this project had inherited).
 
-    Runs on config.openai.chat_model (gpt-4o-mini) — this project's own
-    standing "gpt-4o-mini everywhere" rule. AM1ST's own history already
-    tried moving this role (and every other subjective-judgment call in
-    this codebase) onto a cheaper gpt-5-nano model and reverted after a
-    live multi-cycle test found real judgment failures across the board
-    (Scorer scored clearly off-theme content as passing; EventVerifier's
-    related_event()/same_event() both misjudged real pairs, in opposite
-    directions) — see agents/scorer.py's docstring. That lesson is
-    inherited here rather than re-tested.
+    Why AM1ST replaced its own LLM ranker: a live audit found it was
+    unstable in exactly the range that decides most publish cycles.
+    Re-running the SAME batch through the SAME ranker 3x with nothing
+    else changed produced different scores for the same candidate — real,
+    reproducible run-to-run noise, not just batch-composition sensitivity
+    (which was ALSO independently confirmed: one specific candidate
+    scored 0 in one batch and a stable 4 in a later batch with different
+    competing candidates — meaning priority_score was only ever
+    meaningful relative to whatever else happened to be in that specific
+    LLM call, not a portable, independently-checkable number). This is a
+    reliability bug fix, not a US-politics judgment call — the same
+    instability risk applies regardless of what the channel covers, so
+    it's ported as architecture rather than re-discovered from scratch on
+    this project's own future incident.
 
-    Also passes heat_score and an event_first_seen_at-based hours_old (see
-    _call below) — the corroboration/heat signal computed at ingestion
-    time, see core/config.py's HeatConfig."""
+    Every input here is already a reliable, already-computed number:
+    llm_score (ingestion-side editorial severity — this project's own
+    scoring_prompt.txt) and hours_since_update (this candidate's own
+    freshness, deliberately NOT hours_old/event age — a fresh update in a
+    long-running story should be judged on its own freshness, not
+    discounted for the event's total age). The only thing that isn't
+    already a number is "does this topic overlap a trending headline" —
+    that reduces cleanly to an embedding cosine-similarity check, no LLM
+    judgment needed. Removing the LLM call removes the only place noise
+    could enter.
+
+    Deliberately NO separate heat_score bonus — AM1ST's own first version
+    of this rewrite added one, then removed it the same week after a
+    127-real-cycle audit found it double-counted heat_score (already one
+    of scoring_prompt.txt's own section-2 corroboration bullets — a story
+    can reach band 6/7/8 purely off heat_score thresholds) and biased
+    wins toward big, already-corroborated outlets over stories that broke
+    something genuinely engaging first but hadn't been corroborated yet.
+    Ported straight to the corrected (no heat_bonus) formula rather than
+    reintroducing AM1ST's own already-identified mistake. heat_score is
+    still logged per candidate for visibility; it just doesn't feed
+    priority_score.
+
+    is_hot still sorts ahead of priority_score unconditionally, same as
+    before — a manually-flagged breaking candidate always wins the slot.
+
+    Every scored candidate's full breakdown is appended to
+    logs/priority_rank_decisions.jsonl (one line per candidate per
+    cycle), plus one summary line per cycle (see log_publish_outcome())
+    recording which candidate, if any, actually got published — this
+    project has no real data yet, so this logging is what will let a
+    future pass judge whether _TRENDING_SIM_HIGH/_TRENDING_SIM_LOW/
+    _FRESHNESS_DECAY_K need their own recalibration, the same way AM1ST
+    used its own log to catch the heat_bonus problem."""
 
     def __init__(self, config: AppConfig) -> None:
-        self._client = create_openai_client(config)
-        self._model = config.openai.chat_model
-        self._system_prompt = Path(config.publish.priority_rank_prompt_file).read_text(encoding="utf-8")
-
-    async def _call(self, batch: list[PublishCandidate], trending_headlines: list[str]) -> str:
-        now = datetime.now(timezone.utc)
-        user_message = json.dumps(
-            {
-                "trending_headlines": trending_headlines,
-                "stories": [
-                    {
-                        "id": c.page_id,
-                        "post_content": c.post_content,
-                        # Two DIFFERENT freshness numbers, deliberately both
-                        # sent (2026-08-06) — collapsing them into one lost
-                        # real information: hours_old measures the underlying
-                        # EVENT's age (event_first_seen_at, from the
-                        # ingestion-side corroboration query — see
-                        # core/config.py's HeatConfig), which answers "how
-                        # long has this story existed." hours_since_update
-                        # measures THIS SPECIFIC candidate's own published_at,
-                        # which answers "how fresh is this particular report."
-                        # These diverge a lot for an evolving story — a
-                        # genuine new development (new arrest, new document)
-                        # in a 30-hour-old case can itself be minutes old.
-                        # See project_am1st_migration memory's 2026-08-06
-                        # "event aggregation" note.
-                        "hours_old": round((now - (c.event_first_seen_at or c.published_at)).total_seconds() / 3600, 1),
-                        "hours_since_update": round((now - c.published_at).total_seconds() / 3600, 1),
-                        "heat_score": c.heat_score,
-                    }
-                    for c in batch
-                ],
-            },
-            ensure_ascii=False,
-        )
-        kwargs = dict(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": self._system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-        )
-        if self._model.startswith("gpt-5"):
-            kwargs["max_completion_tokens"] = 500
-            kwargs["reasoning_effort"] = "minimal"
-        else:
-            kwargs["temperature"] = 0.2
-            kwargs["max_tokens"] = 500
-        resp = await self._client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.content or ""
-
-    @staticmethod
-    def _parse(raw: str) -> list[_RankEntry]:
-        cleaned = _SMART_QUOTES_RE.sub('"', _FENCE_RE.sub("", raw)).strip()
-        data = json.loads(cleaned)
-        return [_RankEntry.model_validate(item) for item in data]
+        self._embedder = Embedder(config)
 
     async def rank(self, batch: list[PublishCandidate], trending_headlines: list[str] | None = None) -> list[PublishCandidate]:
-        """Sets priority_score on each item in `batch` (in place, on copies)
-        and returns them sorted by priority_score descending, tie-broken by
-        published_at descending. Falls back to the existing llm_score order
-        (priority_score left at 0) if the LLM output can't be parsed even
-        after one retry — never blocks the publish cycle on this step.
-
-        `trending_headlines` is a read-only context snapshot (see
-        agents/trending.py) — current top world/China headlines from
-        Google News, given to the model so it can judge whether a
-        candidate overlaps with what's actively trending right now. An
-        empty list (the default, or whatever agents/trending.py returns on
-        a failed fetch) just means no trending context this cycle — never
-        blocks ranking."""
         if not batch:
             return []
         trending_headlines = trending_headlines or []
+        trending_embeddings = [await self._embedder.embed(h) for h in trending_headlines if h]
 
-        raw = await self._call(batch, trending_headlines)
-        try:
-            entries = self._parse(raw)
-        except (json.JSONDecodeError, ValidationError, TypeError) as e:
-            logger.warning("PriorityRanker: malformed output, retrying once: %s", e)
-            retry_raw = await self._call(batch, trending_headlines)
-            try:
-                entries = self._parse(retry_raw)
-            except (json.JSONDecodeError, ValidationError, TypeError):
-                logger.error("PriorityRanker: gave up after retry — falling back to llm_score order")
-                return sorted(batch, key=lambda c: (c.is_hot, c.llm_score), reverse=True)
+        now = datetime.now(timezone.utc)
+        scored: list[tuple[PublishCandidate, float]] = []
+        for c in batch:
+            hours_since_update = max(0.0, (now - c.published_at).total_seconds() / 3600)
 
-        scores = {e.id: e.priority_score for e in entries}
-        ranked = [c.model_copy(update={"priority_score": scores.get(c.page_id, 0.0)}) for c in batch]
-        # is_hot (2026-08-31, core/hot_topics.py) sorts ahead of
-        # priority_score, not just as an input to it — a deterministic
-        # guarantee that a manually-flagged breaking candidate always wins
-        # this cycle's publish slot over anything not flagged, rather than
-        # relying on the LLM to correctly weigh a new field it's never seen.
-        ranked.sort(key=lambda c: (c.is_hot, c.priority_score, c.published_at), reverse=True)
-        return ranked
+            best_sim = 0.0
+            trending_bonus = 0.0
+            if trending_embeddings:
+                cand_embedding = await self._embedder.embed((c.post_content or c.title)[:2000])
+                best_sim = max(cosine_similarity(cand_embedding, e) for e in trending_embeddings)
+                if best_sim >= _TRENDING_SIM_HIGH:
+                    trending_bonus = 2.0
+                elif best_sim >= _TRENDING_SIM_LOW:
+                    trending_bonus = 1.0
+
+            freshness_penalty = _FRESHNESS_DECAY_K * math.log(1 + hours_since_update)
+            priority_score = c.llm_score + trending_bonus - freshness_penalty
+
+            _log_decision({
+                "page_id": c.page_id,
+                "url": c.url,
+                "title": c.title,
+                "llm_score": c.llm_score,
+                "heat_score": c.heat_score,
+                "trending_max_similarity": round(best_sim, 4),
+                "trending_bonus": trending_bonus,
+                "hours_since_update": round(hours_since_update, 2),
+                "freshness_penalty": round(freshness_penalty, 3),
+                "priority_score": round(priority_score, 3),
+                "is_hot": c.is_hot,
+            })
+
+            scored.append((c.model_copy(update={"priority_score": priority_score}), hours_since_update))
+
+        scored.sort(key=lambda item: (item[0].is_hot, item[0].priority_score, -item[1]), reverse=True)
+        return [c for c, _ in scored]

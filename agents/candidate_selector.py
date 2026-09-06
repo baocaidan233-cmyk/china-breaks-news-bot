@@ -54,23 +54,32 @@ def select_batch(candidates: list[PublishCandidate], config: AppConfig) -> list[
     already has legitimate candidates.
 
     Hard, unconditional published_at ceiling (AM1ST's own "iron rule": only
-    same-day-ish news, publish nothing rather than something stale) —
-    every tier below, including the hot-topic force-include and the
-    batch_min last-resort fallback, only ever draws from `candidates` after
-    this filter — none of them can bypass it. candidate_max_age_hours is
-    reused here deliberately, not a new number: on a genuinely slow news
-    day this can leave the batch under batch_min, even empty — that's the
-    accepted trade-off, not a bug to work around."""
+    same-day-ish news, publish nothing rather than something stale), now
+    day-aware too (ported from AM1ST 2026-09-06, same weekday/weekend split
+    as the score floor above): weekday_max_age_hours keeps the original
+    same-day rule; weekend_max_age_hours (widened) reflects real lower
+    weekend news volume, so a Friday-night story is still eligible through
+    Saturday instead of the batch running under batch_min or empty.
+    query_eligible_candidates()'s own Notion-query ceiling
+    (config.publish.candidate_max_age_hours) is deliberately the WIDER of
+    the two so weekend-eligible candidates are never excluded before
+    reaching this actual day-aware filter. Every tier below, including the
+    hot-topic force-include and the batch_min last-resort fallback, only
+    ever draws from `candidates` after this filter — none of them can
+    bypass it. On a genuinely slow news day this can leave the batch under
+    batch_min, even empty — that's the accepted trade-off, not a bug to
+    work around."""
     pub = config.publish
     now = datetime.now(timezone.utc)
     is_weekday = _is_weekday(now)
     preferred_floor = pub.weekday_min_score if is_weekday else pub.weekend_min_score
     fallback_floor = pub.weekend_min_score
+    max_age_hours = pub.weekday_max_age_hours if is_weekday else pub.weekend_max_age_hours
 
     def hours_old(c: PublishCandidate) -> float:
         return (now - c.published_at).total_seconds() / 3600
 
-    candidates = [c for c in candidates if hours_old(c) <= pub.candidate_max_age_hours]
+    candidates = [c for c in candidates if hours_old(c) <= max_age_hours]
 
     fresh = [c for c in candidates if hours_old(c) <= pub.fresh_hours]
 

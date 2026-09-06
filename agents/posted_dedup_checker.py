@@ -4,7 +4,7 @@ import logging
 
 from agents.embedder import Embedder
 from core.config import AppConfig
-from core.event_identity import entity_tokens, log_decision
+from core.event_identity import EventVerifier, entity_tokens, has_date_conflict, log_decision
 from core.models import PublishCandidate
 from core.qdrant_store import PostedHistoryStore
 
@@ -30,62 +30,139 @@ async def find_publishable(
     ranked_batch: list[PublishCandidate],
     embedder: Embedder,
     posted_store: PostedHistoryStore,
+    event_verifier: EventVerifier,
     config: AppConfig,
 ) -> PublishCandidate | None:
     """Walks `ranked_batch` in priority order (highest first) and returns the
     first candidate that is NOT a near-duplicate of something this channel
     already posted in the last publish.posted_dedup_window_hours. Duplicates
+    (and candidates whose dedup check itself failed — see Fallback below)
     are skipped (logged only, not written anywhere) — never causes the whole
-    cycle to abort. Returns None only if every candidate in the batch is a
-    duplicate (or the batch is empty) — the correct outcome is "publish
-    nothing this cycle", not a fallback.
+    cycle to abort. Returns None only if every candidate in the batch was a
+    duplicate or errored (or the batch is empty) — the correct outcome for
+    an actual all-duplicate batch is "publish nothing this cycle", not a
+    fallback that fakes freshness.
 
-    2026-09-02: every comparison (not just ones that end up over threshold)
-    now also logs an entity-token overlap between the candidate and its
-    closest posted match — observational only, does NOT affect the
-    similarity > threshold decision below. posted_dedup_threshold (0.70)
-    has never actually been calibrated against a real score distribution
-    the way dedup.semantic_threshold/hot_topics.match_threshold were — the
-    only real precedent behind it is the single 2026-08-06 incident in this
-    module's content_for_embedding() docstring. The user separately asked
-    whether entity overlap (already used at ingestion time, see
-    core/event_identity.py) should factor into this decision too — logging
-    it here first, unused, so both questions (is 0.70 the right cosine
-    line, would requiring entity overlap too change any real verdict) can
-    be answered from real accumulated data before either one changes actual
-    behavior."""
+    2026-09-06, ported from AM1ST's own 2026-09-05 fix: cosine similarity
+    alone no longer decides a duplicate — it only decides whether to ASK. A
+    real production audit on AM1ST's own feed found cosine > threshold
+    flags genuine next-stage developments in an ongoing story as duplicates
+    of the earlier stage just as often as it flags actual reprints (a state
+    court ruling vs. its own federal appeal; a construction announcement vs.
+    a legal challenge trying to halt it — both got silently dropped as
+    duplicates in production, cascading the actual winner down to a much
+    weaker, unrelated story). The exact same failure mode applies here: a
+    CCP sanctions package vs. a court challenge to it, or a Belt-and-Road
+    financing announcement vs. a recipient country's own confirmation, look
+    equally similar in embedding space to cosine alone.
+
+    core/event_identity.py's EventVerifier.same_event() already exists for
+    exactly this question (used at ingestion time to decide whether two
+    articles describe the same occurrence) and already carries this
+    project's stage-distinction guidance (prompts/same_event_prompt.txt) —
+    reused here as-is, no new prompt, no keyword heuristics. Only called
+    when cosine > threshold (rare per publish cycle), so the added cost is
+    negligible.
+
+    Rule-tier pre-filter: before asking the LLM, check has_date_conflict()
+    (core/event_identity.py) — if both sides name a single explicit "Month
+    Day" date and they disagree, that's strong independent evidence of a
+    different specific occurrence regardless of how similar the text
+    otherwise reads, so skip the LLM call and treat as NOT duplicate
+    outright. Deliberately NOT adding the mirror-image shortcut (skip the
+    LLM and assume duplicate above some high cosine/entity-overlap cutoff)
+    — AM1ST's own same-day data argued against it: a real story scored
+    0.738-0.747 cosine against an older, unrelated story across several
+    cycles (all wrongly auto-flagged "duplicate" under a pure-cosine rule)
+    before same_event() correctly called it DIFFERENT_EVENT at a similar
+    score — i.e. the exact cosine/entity-overlap range that would tempt a
+    "confident duplicate" shortcut is also where a real false positive just
+    happened. Revisit only once enough same_event()-adjudicated
+    posted_dedup pairs accumulate to bucket-calibrate a genuinely safe
+    floor, the same way no_overlap_llm_review_floor was calibrated — not
+    before, and not by copying AM1ST's own number blind.
+
+    Fallback: same_event() is a real OpenAI call with no fail-open wrapper
+    of its own — any error (a timeout or a malformed response) propagates.
+    Without this fallback, that exception would escape find_publishable()
+    entirely and abort the WHOLE cycle via main_publish.py's run_cycle()
+    exception handler — turning one transient API hiccup on candidate #1
+    into zero publishes this cycle, even if candidates #2-#10 never needed
+    an LLM call at all. Each candidate's whole dedup check (embedding,
+    posted-history lookup, same_event()) is now wrapped in its own
+    try/except: on any failure, that ONE candidate is skipped (logged as
+    check_type=posted_dedup_error, not conflated with a real "duplicate"
+    verdict) and the walk continues to the next-ranked candidate, so the
+    cycle still very likely finds something to publish."""
     threshold = config.publish.posted_dedup_threshold
 
     for candidate in ranked_batch:
-        candidate_content = content_for_embedding(candidate.post_content, candidate.url)
-        embedding = await embedder.embed(candidate_content)
-        similarity, matched_url, matched_content = await posted_store.most_similar_recent(embedding)
+        try:
+            candidate_content = content_for_embedding(candidate.post_content, candidate.url)
+            embedding = await embedder.embed(candidate_content)
+            similarity, matched_url, matched_content_raw = await posted_store.most_similar_recent(embedding)
 
-        is_duplicate = similarity > threshold
+            looks_similar = similarity > threshold
+            is_duplicate = False
+            same_event_raw = ""
+            resolved_by = ""
+            if looks_similar:
+                matched_content = content_for_embedding(matched_content_raw, matched_url)
+                if has_date_conflict(candidate_content, matched_content):
+                    is_duplicate = False
+                    same_event_raw = "RULE: has_date_conflict() — explicit conflicting dates, skipped LLM call"
+                    resolved_by = "date_conflict_rule"
+                else:
+                    is_duplicate, same_event_raw = await event_verifier.same_event(candidate_content, matched_content)
+                    resolved_by = "llm"
+        except Exception:
+            logger.exception(
+                "find_publishable: dedup check failed for %s — skipping this candidate (not a confirmed verdict), trying next",
+                candidate.url,
+            )
+            log_decision(config, {"check_type": "posted_dedup_error", "candidate_url": candidate.url})
+            continue
+
         if matched_url:
-            candidate_entities = entity_tokens(candidate_content)
-            matched_entities = entity_tokens(matched_content)
-            log_decision(config, {
+            log_record = {
                 "check_type": "posted_dedup",
                 "candidate_url": candidate.url,
                 "matched_url": matched_url,
                 "cosine_score": similarity,
                 "threshold": threshold,
-                "rule_verdict": "duplicate" if is_duplicate else "kept",
-                "candidate_entities": sorted(candidate_entities),
-                "matched_entities": sorted(matched_entities),
-                "entity_overlap": sorted(candidate_entities & matched_entities),
-            })
+                "cosine_flagged": looks_similar,
+                "final_verdict": "duplicate" if is_duplicate else "kept",
+            }
+            if looks_similar:
+                candidate_entities = entity_tokens(candidate_content)
+                matched_entities = entity_tokens(matched_content_raw)
+                log_record.update({
+                    "resolved_by": resolved_by,
+                    "same_event_raw": same_event_raw,
+                    "candidate_entities": sorted(candidate_entities),
+                    "matched_entities": sorted(matched_entities),
+                    "entity_overlap": sorted(candidate_entities & matched_entities),
+                })
+            log_decision(config, log_record)
 
         if is_duplicate:
             logger.info(
-                "find_publishable: %s dropped — duplicate of already-posted content (%.3f > %.2f, matched %s)",
+                "find_publishable: %s dropped — same_event() confirmed duplicate of already-posted content (cosine=%.3f > %.2f, matched %s)",
                 candidate.url,
                 similarity,
                 threshold,
                 matched_url,
             )
             continue
+        if looks_similar:
+            logger.info(
+                "find_publishable: %s cosine-flagged (%.3f > %.2f) but %s said DIFFERENT — not treating as duplicate, matched %s",
+                candidate.url,
+                similarity,
+                threshold,
+                "has_date_conflict()" if resolved_by == "date_conflict_rule" else "same_event()",
+                matched_url,
+            )
 
         logger.info("find_publishable: %s selected (priority_score=%.1f)", candidate.url, candidate.priority_score)
         return candidate
