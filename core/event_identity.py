@@ -173,20 +173,22 @@ _TRAILING_POSSESSIVE_RE = re.compile(r"’s$|'s$")
 _PERSON_SHORT_FORMS = _person_short_form_lookup()
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
-# _ROLE_TITLE_MAP): all three are AM1ST's own US-government-specific
-# content (ICE/DHS/DOJ-style acronyms, US Cabinet role-titles), ported
-# UNCHANGED per the instruction to carry over this module's mechanism as-
-# is — they cost nothing extra to keep (a lookup miss is just a no-op) but
-# are effectively inert for China Breaks' own content, since these US
-# agency names/roles rarely appear in CCP-exposure coverage. Not replaced
-# with a CCP-institution equivalent (e.g. an MSS/CCDI/Propaganda Dept.
-# acronym map, a Politburo role-title map) — building that wasn't asked
-# for and risks the same kind of subtle, hard-to-verify factual claims as
-# core/gazetteer_names.json's own leadership roster, without a similarly
-# scoped request behind it. Worth considering for a future pass once real
-# chinabreaks_events data shows whether this class of fragmentation
-# (acronym vs. full name, role-title vs. officeholder name) actually
-# occurs in this feed's own content the way it did for AM1ST's.
+# _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
+# ported unchanged (a lookup miss is just a no-op, effectively inert for
+# China Breaks' own coverage). CCP/China-institution entries were added
+# 2026-09-06 to _ORG_ACRONYM_MAP/_KNOWN_GOV_ACRONYMS — these are stable,
+# factual institution-name<->acronym pairs (CCP, PLA, MSS, etc. don't
+# change with a leadership reshuffle the way "who is the current DHS
+# Secretary" does), so they don't carry the same staleness risk as a
+# role-title map. _ROLE_TITLE_MAP itself is NOT extended with a CCP
+# officeholder equivalent (e.g. "the foreign minister" -> current name) —
+# unlike institution acronyms, that maps a role to a PERSON who changes,
+# which is exactly the kind of claim AM1ST's own version required grepping
+# real ingested-article co-occurrence evidence for before trusting, not
+# general knowledge. No real chinabreaks production data exists yet to
+# verify against, so this stays deferred, same as it was before this pass
+# — revisit once real chinabreaks_events data shows whether role-title
+# fragmentation actually occurs in this feed's own content.
 
 # Acronym/full-name normalization — real AM1ST production fragmentation
 # traced to entity_tokens() decomposing "Immigration and
@@ -226,6 +228,25 @@ _ORG_ACRONYM_MAP = {
     "homeland security department": "dhs",
     "homeland security": "dhs",
     "postal service": "usps",
+    # CCP/China institutions (2026-09-06) — stable institution names, not
+    # officeholder-specific, see the module note above.
+    "chinese communist party": "ccp",
+    "communist party of china": "ccp",
+    "people's liberation army": "pla",
+    "ministry of state security": "mss",
+    "central commission for discipline inspection": "ccdi",
+    "belt and road initiative": "bri",
+    "national people's congress": "npc",
+    "ministry of foreign affairs": "mfa",
+    "people's bank of china": "pboc",
+    "central military commission": "cmc",
+    "ministry of commerce": "mofcom",
+    "chinese people's political consultative conference": "cppcc",
+    "ministry of public security": "mps",
+    "cyberspace administration of china": "cac",
+    "hong kong and macau affairs office": "hkmao",
+    "taiwan affairs office": "tao",
+    "china securities regulatory commission": "csrc",
 }
 
 # Direct acronym scan, independent of spaCy NER entirely (2026-09-04) —
@@ -244,12 +265,25 @@ _KNOWN_GOV_ACRONYMS = {
     "ice", "doj", "fbi", "cbp", "usps", "dhs", "irs", "epa", "cdc", "fda",
     "dea", "cia", "nsa", "dod", "dos", "hhs", "atf", "swat", "nypd", "lapd",
     "opm", "gsa", "cbo", "gao", "ftc", "sec", "faa", "nsc", "nih", "who",
+    # CCP/China institutions (2026-09-06)
+    "ccp", "pla", "mss", "ccdi", "bri", "npc", "mfa", "pboc", "cmc",
+    "mofcom", "cppcc", "mps", "cac", "hkmao", "tao", "csrc",
 }
+# "CPC" (Communist Party of China) is a real alternate acronym for the same
+# entity as "CCP" — some official/academic sources use it instead. Mapped
+# to the SAME canonical token here rather than added as its own entry in
+# _KNOWN_GOV_ACRONYMS, so a bare "CPC" mention overlaps with both a "CCP"
+# mention and a full "Chinese Communist Party" mention (normalized to
+# "ccp" via _ORG_ACRONYM_MAP above) instead of silently producing a
+# different, non-matching token.
+_ACRONYM_ALIASES = {"cpc": "ccp"}
 _ACRONYM_SCAN_RE = re.compile(r"\b[A-Z]{2,5}\b")
 
 
 def _scan_known_acronyms(text: str) -> set[str]:
-    return {tok.lower() for tok in _ACRONYM_SCAN_RE.findall(text) if tok.lower() in _KNOWN_GOV_ACRONYMS}
+    found = {tok.lower() for tok in _ACRONYM_SCAN_RE.findall(text) if tok.lower() in _KNOWN_GOV_ACRONYMS}
+    aliased = {tok.lower() for tok in _ACRONYM_SCAN_RE.findall(text) if tok.lower() in _ACRONYM_ALIASES}
+    return found | {_ACRONYM_ALIASES[a] for a in aliased}
 
 
 # Role-title -> current officeholder surname (2026-09-04) — the harder
@@ -748,22 +782,29 @@ async def verify_compatibility(
         rep_text = matched.get("representative_text", "")
         if doc_freq is not None and new_text and rep_text:
             overlap = weighted_overlap(tokenize(new_text), tokenize(rep_text), doc_freq, doc_count)
-            verdict = "COMPATIBLE" if overlap >= config.entity_verifier.weighted_overlap_threshold else "AMBIGUOUS"
-            # 2026-09-01: this branch's own hit rate/score distribution was
-            # previously invisible in event_identity_decisions.jsonl — a rule-
-            # tier COMPATIBLE/AMBIGUOUS from here looked identical to one from
-            # the normal entity-overlap path below. Logged separately
-            # (check_type) so weighted_overlap_threshold can eventually be
-            # recalibrated on AM1ST's own data instead of North_Korea_News's.
+            # 2026-09-06: no longer auto-COMPATIBLE above threshold — ported
+            # from AM1ST's own cf84857 fix. weighted_overlap_threshold (0.15)
+            # was inherited unvalidated from North_Korea_News, then inherited
+            # AGAIN here from AM1ST without ever being checked against real
+            # data — AM1ST found a live false-merge this shortcut caused (two
+            # unrelated gun-review articles scored 0.294, well above
+            # threshold, silently merged with zero LLM check) with only 2
+            # real observations ever above the threshold, nowhere near
+            # enough to trust. Now always routes to AMBIGUOUS (the real LLM
+            # check) — this branch only ever downgrades scrutiny, never
+            # replaces it; candidate_text/matched_representative_text logged
+            # so this can be recalibrated once real chinabreaks_events data
+            # accumulates, same fix AM1ST applied to its own logging gap.
             log_decision(config, {
                 "check_type": "lexical_fallback",
                 "candidate_event_id": matched.get("event_id"),
                 "cosine_score": matched.get("_score"),
                 "weighted_overlap_score": overlap,
-                "threshold": config.entity_verifier.weighted_overlap_threshold,
-                "rule_verdict": verdict,
+                "rule_verdict": "AMBIGUOUS",
+                "candidate_text": new_text,
+                "matched_representative_text": rep_text,
             })
-            return verdict
+            return "AMBIGUOUS"
         return "FAIL_OPEN"
     core = core_entities_of(matched)
     if not core:
