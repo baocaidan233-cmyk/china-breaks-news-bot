@@ -141,17 +141,18 @@ async def fetch_all(config: AppConfig, sources: list[RssSource]) -> list[Candida
     cutoff = datetime.now(timezone.utc) - timedelta(hours=config.max_publish_age_hours)
     fresh = [c for c in results if c.published_at >= cutoff]
 
-    # Overall cap (config.rss.max_total_items) — new versus AM1ST, which
-    # has no such limit. Real calibrated value from the old n8n system's
-    # global_config node. Applied after the freshness filter, keeping the
-    # most recently published items first — a genuinely busy cycle across
-    # many sources shouldn't pay clustering/scoring cost on more than this
-    # many candidates.
-    if len(fresh) > config.rss.max_total_items:
-        fresh = sorted(fresh, key=lambda c: c.published_at, reverse=True)[: config.rss.max_total_items]
-
+    # No overall cap here (removed 2026-09-06) — this pipeline's own
+    # Redis/semantic dedup and LLM score gate are what should decide which
+    # candidates survive, not a blind recency-sorted truncation across all
+    # sources. That truncation was actively working against this channel's
+    # own mission: on a busy news day it discarded whichever items merely
+    # published earliest, with no regard for China/CCP relevance, and this
+    # channel's source pool is dominated by general-news outlets where a
+    # live sample found only ~16.5% of raw items are China-relevant at all
+    # — exactly the rare, valuable candidates a pure-recency cutoff was
+    # most likely to cut. Matches AM1ST, which never had this cap.
     logger.info(
-        "fetch_all: %d raw item(s) from %d source(s), %d within %dh publish-age window (capped at %d)",
-        len(results), len(sources), len(fresh), config.max_publish_age_hours, config.rss.max_total_items,
+        "fetch_all: %d raw item(s) from %d source(s), %d within %dh publish-age window",
+        len(results), len(sources), len(fresh), config.max_publish_age_hours,
     )
     return fresh

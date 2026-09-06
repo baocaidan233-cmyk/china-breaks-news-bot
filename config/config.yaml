@@ -120,27 +120,25 @@ qdrant:
   timeout_seconds: 15  # AsyncQdrantClient has no timeout by default — AM1ST hit a real stalled-request hang without this; ported as a preventive default
 
 rss:
-  # Fetch caps — new versus AM1ST, which reads every entry from every
-  # in_use feed with no limit. max_items_per_feed matches the real n8n
-  # system's global_config node value, confirmed both in the 2026-09-04
-  # reading (old v4.0/v3.9 pipelines) and the 2026-09-05 reading (current
-  # live v3.20/v3.17 major/minor split) — unchanged across versions.
+  # Per-feed cap — matches the real n8n system's global_config node value,
+  # confirmed both in the 2026-09-04 reading (old v4.0/v3.9 pipelines) and
+  # the 2026-09-05 reading (current live v3.20/v3.17 major/minor split) —
+  # unchanged across versions.
   #
-  # max_total_items was 200 in the old v4.0 pipeline this port was
-  # originally based on, but the CURRENT live system raised it to 500
-  # (confirmed 2026-09-06) — investigating the real editors' recurring
-  # "not enough suitable China news" complaint turned up real evidence
-  # this cap (applied purely by recency across ALL sources, not per-source
-  # or relevance-aware — see agents/rss_fetcher.py's fetch_all) was
-  # letting high-volume, low-relevance general-news sources crowd out the
-  # much rarer genuine China/CCP items during any busy news cycle: a live
+  # No overall cross-source cap (removed 2026-09-06, matching AM1ST, which
+  # never had one) — investigating the real editors' recurring "not enough
+  # suitable China news" complaint turned up real evidence this cap
+  # (applied purely by recency across ALL sources, not per-source or
+  # relevance-aware — see agents/rss_fetcher.py's fetch_all) was letting
+  # high-volume, low-relevance general-news sources crowd out the much
+  # rarer genuine China/CCP items during any busy news cycle: a live
   # keyword-relevance sample across this project's own active source list
   # found only ~16.5% of raw items are China/CCP-relevant at all, and 106
   # of 270 sampled sources contributed zero China-relevant items in their
-  # most recent ~50-60 entries. Raised to match what production itself
-  # already self-corrected to.
+  # most recent ~50-60 entries. User's call: the pipeline's existing
+  # Redis/semantic dedup layers and LLM score gate are what should decide
+  # which candidates survive, not a blind pre-scoring truncation.
   max_items_per_feed: 150
-  max_total_items: 500
 
 extraction:
   timeout_seconds: 20
@@ -170,11 +168,10 @@ publish:
 # Candidate freshness window — was 6h, the old v4.0 pipeline's value this
 # port was originally based on (vs AM1ST's own 3h). The CURRENT live
 # system tightened this to 3h (confirmed 2026-09-06, v3.20/v3.17's
-# filter_feed_hours) — paired with raising rss.max_total_items 200->500
-# in the same real system, likely as one combined fix: a narrower window
-# means less redundant/stale volume competing for the raised item cap,
-# so genuinely rare China/CCP items survive the recency-sorted truncation
-# more often. Matched here for the same reason.
+# filter_feed_hours) — matched here. (The real system paired this with
+# raising its own rss_limit 200->500, but this project instead removed its
+# overall cross-source cap entirely — see rss.max_items_per_feed's own
+# comment — so that pairing doesn't apply here.)
 max_publish_age_hours: 3
 poll_interval_seconds: 600  # 10 minutes, matches AM1ST's own cadence
 cycle_timeout_seconds: 540  # 9 min — hard-cuts a stuck cycle so the next one always starts on schedule; AM1ST's own real-world-derived value, inherited

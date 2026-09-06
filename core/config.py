@@ -380,16 +380,20 @@ class QdrantConfig(BaseModel):
 
 
 class RssConfig(BaseModel):
-    """Fetch caps — new versus AM1ST, which reads every entry from every
-    in_use feed with no limit. Real calibrated values from the old n8n
-    system's global_config node, carried over as this bot's starting
-    defaults: cap each individual feed at max_items_per_feed entries, then
-    cap the combined freshness-filtered batch at max_total_items overall
-    (most recent first) before the rest of the pipeline (dedup/clustering/
-    scoring) ever sees it."""
+    """Per-feed cap — matches the real n8n system's global_config node
+    value, carried over as this bot's starting default: cap each
+    individual feed at max_items_per_feed entries.
+
+    There is deliberately no overall cross-source cap (removed 2026-09-06,
+    matching AM1ST, which never had one) — this channel's own source pool
+    is dominated by general-news outlets where a live sample found only
+    ~16.5% of raw items are China/CCP-relevant, and an aggregate
+    recency-sorted cutoff was discarding exactly those rare relevant items
+    on any busy news day, with no regard for relevance. The Redis/semantic
+    dedup layers and the LLM score gate are what should decide which
+    candidates survive, not a blind truncation before they're ever seen."""
 
     max_items_per_feed: int = 150
-    max_total_items: int = 200
 
 
 class ExtractionConfig(BaseModel):
