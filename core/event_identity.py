@@ -497,7 +497,14 @@ def _scan_role_titles(text: str) -> set[str]:
 
 
 def _clean_entity_span(span_text: str) -> str:
-    t = span_text.strip().strip("\"'“”‘’")
+    # 2026-09-07: added CJK bracket/quote punctuation (「」『』（）) — found
+    # via a real Chinese-language entity span coming out as "」 Newtalk"
+    # (a stray closing quote leaking into the span from adjacent text),
+    # which then failed to match KNOWN_BYLINE_NOISE's exact "newtalk"
+    # entry. Same stripping purpose as the ASCII quote marks already
+    # handled below, just covering the CJK equivalents these punctuation
+    # marks use instead of "/'.
+    t = span_text.strip().strip("\"'“”‘’「」『』（）")
     t = _TRAILING_POSSESSIVE_RE.sub("", t)
     return re.sub(r"\s+", " ", t).strip()
 
