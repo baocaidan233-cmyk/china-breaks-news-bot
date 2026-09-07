@@ -354,6 +354,29 @@ def _build_china_signal_keywords() -> frozenset[str]:
         "chiny", "chińsk",  # Polish: China, Chinese (stem)
         "chine", "chinois",  # French: China, Chinese
         "chinesisch",  # German: Chinese (German "China" itself already matches the English keyword above, same spelling)
+        # 2026-09-07: CCP/China institution acronyms and full names — found
+        # missing via a real user test ("would a PLA headline pass?" — it
+        # didn't). These duplicate _ORG_ACRONYM_MAP/_KNOWN_GOV_ACRONYMS'
+        # own China-institution entries further down this file, not pulled
+        # from there directly since this function runs before those are
+        # defined — kept as a literal list here for the same reason that
+        # one is a literal list: stable, factual institution<->acronym
+        # pairs that don't change with a leadership reshuffle.
+        "pla", "people's liberation army",
+        "mss", "ministry of state security",
+        "ccdi", "central commission for discipline inspection",
+        "bri",
+        "npc", "national people's congress",
+        "mfa", "ministry of foreign affairs",
+        "pboc", "people's bank of china",
+        "cmc", "central military commission",
+        "mofcom",
+        "cppcc", "chinese people's political consultative conference",
+        "mps", "ministry of public security",
+        "cac", "cyberspace administration of china",
+        "hkmao", "hong kong and macau affairs office",
+        "tao", "taiwan affairs office",
+        "csrc", "china securities regulatory commission",
     }
     for full_name, short_form in _all_person_pairs(data, multilingual):
         keywords.add(full_name.lower())
