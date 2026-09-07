@@ -99,8 +99,20 @@ Mandatory floors above still apply here unchanged.
 
 ## RETURN FORMAT
 
+Decide `nexus_gate` FIRST, as its own separate judgment, before you decide
+`llm_score` — do not work backward from a score you already have in mind.
+`nexus_gate` is PASS only if the story has a real, concrete connection to
+China/the CCP per section 1 above; otherwise it is FAIL. **If nexus_gate
+is FAIL, llm_score MUST be below 5 — there is no "FAIL but still 5,
+marginal" option; band 5 in section 2 only exists for stories that PASS
+the gate.** This is enforced in code, not just by convention: a FAIL
+verdict paired with a score of 5 or higher will be overridden regardless
+of what number you write, so a FAIL/5+ pair is never actually a way to
+hedge — decide the gate honestly and the score will follow it.
+
 ```json
 {
+  "nexus_gate": "PASS or FAIL",
   "llm_score": float,
   "llm_comment": "A concise justification of the score, tied to at least one criterion above."
 }

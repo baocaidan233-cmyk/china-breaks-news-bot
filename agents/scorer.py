@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class ScoreOutput(BaseModel):
     llm_score: float
     llm_comment: str
+    nexus_gate: str = ""
 
 
 class Scorer:
@@ -109,16 +110,46 @@ class Scorer:
         )
         raw = await self._call(user_message)
         try:
-            return ScoreOutput.model_validate(json.loads(raw))
+            result = ScoreOutput.model_validate(json.loads(raw))
         except (json.JSONDecodeError, ValidationError) as e:
             logger.warning("Scorer: malformed output for %s, retrying once: %s", candidate.url, e)
             retry_message = (
                 f"{user_message}\n\nYour previous response could not be parsed as "
-                f'{{"llm_score": float, "llm_comment": string}}. Error: {e}. Return valid JSON only.'
+                f'{{"nexus_gate": "PASS or FAIL", "llm_score": float, "llm_comment": string}}. Error: {e}. Return valid JSON only.'
             )
             raw_retry = await self._call(retry_message)
             try:
-                return ScoreOutput.model_validate(json.loads(raw_retry))
+                result = ScoreOutput.model_validate(json.loads(raw_retry))
             except (json.JSONDecodeError, ValidationError):
                 logger.error("Scorer: gave up on %s after retry", candidate.url)
                 return None
+        return self._enforce_gate(candidate.url, result)
+
+    @staticmethod
+    def _enforce_gate(url: str, result: ScoreOutput) -> ScoreOutput:
+        """2026-09-08: hard code-level enforcement, not just prompt wording
+        — a real production audit found the model's own stated reasoning
+        repeatedly said a story "does not have a direct connection to the
+        CCP or China" / "lacks a concrete link," yet still returned
+        llm_score=5 anyway (Nigel Farage UK migrant-protest remarks, an
+        Israeli minister's Oslo Accords comments, a Trump Space Force
+        uniform story, a UK-Israel trade ban — none mention China/CCP at
+        all). This happened with scoring_prompt.txt's own Nexus Gate
+        already spelling out "only score below 5 when clearly unrelated"
+        and several real negative examples already in the prompt — adding
+        more prose examples had already been tried once this same day and
+        didn't fully close it. Forcing an explicit nexus_gate field BEFORE
+        the numeric score makes the gate decision and the score
+        inconsistent-with-each-other in a way code can actually catch:
+        if the model's own gate verdict is FAIL, the score is hard-capped
+        below 5 regardless of what number it returned, rather than trusting
+        the model to keep its own stated reasoning and its own number in
+        sync. A FAIL that already scored below 5 is left untouched (no
+        override needed); this only fires when the two disagree."""
+        if result.nexus_gate.strip().upper().startswith("FAIL") and result.llm_score >= 5:
+            logger.warning(
+                "Scorer: %s — nexus_gate=FAIL but llm_score=%.1f, overriding to 3.0 (model comment: %r)",
+                url, result.llm_score, result.llm_comment,
+            )
+            return result.model_copy(update={"llm_score": 3.0})
+        return result
