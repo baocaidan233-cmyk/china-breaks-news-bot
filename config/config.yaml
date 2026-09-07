@@ -168,7 +168,7 @@ publish:
   batch_max: 10
   priority_rank_prompt_file: "prompts/priority_rank_prompt.txt"
   posted_dedup_window_hours: 240  # 10 days, matches heat.window_hours
-  posted_dedup_threshold: 0.70  # stricter than ingestion's 0.8 — deliberate, fully-autonomous posting errs toward under-posting
+  posted_dedup_threshold: 0.80  # 2026-09-07: was 0.70 — raised to match dedup.semantic_threshold exactly now that the gray zone (0.6-0.8, entity-overlap-widened) is the real safety net, not the raw cutoff — see core/config.py's PublishConfig docstring
   max_widen_attempts: 3  # ported from AM1ST 2026-09-06 — see core/config.py's PublishConfig docstring
   staleness_check_hours_floor: 72  # ported from AM1ST 2026-09-06
 
