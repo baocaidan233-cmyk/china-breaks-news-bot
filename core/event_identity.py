@@ -312,7 +312,7 @@ def _maybe_segment_cjk(text: str) -> str:
 # unrelated articles, which would otherwise poison entity-based matching
 # (see reference_known_byline_noise_entities memory: the BoJ/gold event
 # false-merge case was traced back to this exact byline).
-KNOWN_BYLINE_NOISE = {"tyler durden", "zero hedge", "zerohedge"}
+KNOWN_BYLINE_NOISE = {"tyler durden", "zero hedge", "zerohedge", "newtalk"}
 
 _ENTITY_LABELS = {"PERSON", "ORG", "GPE", "LOC", "NORP", "FAC", "EVENT"}
 _STOPWORDS = {
