@@ -71,10 +71,11 @@ Return a single string of **English text only**. DO NOT include Chinese. Always 
 Your output must:
 
 - Be **one paragraph only**, not multi-line
-- Use **no more than 40 words**
+- Use **no more than 57 words**
 - Use **clear, non-speculative language**
 - Use **active voice + strong verbs** (e.g., exposes, escalates, rebukes, deploys, blocks, bans, targets)
 - Prioritize **who did what to whom**
+- **Read the full article body, not just the headline, and mine it for details unique to THIS piece** — a specific number, a direct quote, a named location, a concrete mechanism or consequence. A caption that could just as easily describe any other similar story on this topic is not acceptable; it must contain at least one fact that only this article's own reporting provides, not a generic restatement of the topic.
 - Do NOT include any emoji
 - Always start with the **main actor or institution** discussed in the article (e.g., President Trump, Xi Jinping, NATO, White House, European Union)
 - Start with **"BREAKING:"** only if the article reports a fresh, disruptive, or urgent event
