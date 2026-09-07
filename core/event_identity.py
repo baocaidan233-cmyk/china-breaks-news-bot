@@ -377,6 +377,33 @@ def _build_china_signal_keywords() -> frozenset[str]:
         "hkmao", "hong kong and macau affairs office",
         "tao", "taiwan affairs office",
         "csrc", "china securities regulatory commission",
+        # 2026-09-07: Chinese-language names for the same institutions —
+        # confirmed via real test that "解放军在东海举行实弹演习" only passed
+        # coincidentally (via "东海"/East China Sea already being a
+        # registered place), while "国家安全部通报一起间谍案" (MSS) and
+        # "中央纪委宣布对某官员立案审查" (CCDI) — real institution mentions
+        # with no place/person name alongside them — both failed. Bare
+        # short forms that could plausibly mean a DIFFERENT country's own
+        # institution or an unrelated entity in isolation (e.g. "央行"
+        # alone = "the central bank," could be any country's; "人大" alone
+        # collides with Renmin University's own common short name) are
+        # deliberately skipped in favor of their fuller, unambiguous form
+        # only — same reasoning as _ORG_ACRONYM_MAP's org_key matching.
+        "解放军", "中国人民解放军", "解放軍", "中國人民解放軍",  # PLA
+        "国家安全部", "国安部", "國家安全部", "國安部",  # MSS
+        "中央纪委", "中央紀委",  # CCDI
+        "一带一路", "一帶一路",  # BRI
+        "全国人大", "全國人大",  # NPC (bare "人大" skipped — collides with Renmin University's own common short name)
+        "外交部",  # MFA
+        "中国人民银行", "中國人民銀行",  # PBOC (bare "央行" skipped — ambiguous with any other country's own central bank)
+        "中央军委", "中央軍委",  # CMC
+        "商务部", "商務部",  # MOFCOM
+        "全国政协", "全國政協",  # CPPCC
+        "公安部",  # MPS
+        "网信办", "網信辦",  # CAC
+        "港澳办", "港澳辦",  # HKMAO
+        "国台办", "國台辦",  # TAO
+        "证监会", "證監會",  # CSRC
     }
     for full_name, short_form in _all_person_pairs(data, multilingual):
         keywords.add(full_name.lower())
