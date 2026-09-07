@@ -93,8 +93,24 @@ async def find_publishable(
     try/except: on any failure, that ONE candidate is skipped (logged as
     check_type=posted_dedup_error, not conflated with a real "duplicate"
     verdict) and the walk continues to the next-ranked candidate, so the
-    cycle still very likely finds something to publish."""
+    cycle still very likely finds something to publish.
+
+    2026-09-07: gray-zone entity-overlap widening added below `threshold`
+    itself — real production miss found the same day: two Taiwan Coast
+    Guard articles about the literal same incident (same vessel "3501",
+    same responding ship, same location, same sortie count) scored 0.6986
+    cosine against each other, missing the 0.70 cutoff by 0.0014, so
+    `looks_similar` was False and neither has_date_conflict() nor
+    same_event() ever got a chance to weigh in — both got published as
+    separate posts 37 minutes apart. Same root cause and same fix shape as
+    core/event_identity.py's is_cross_cycle_duplicate() (built the same day
+    for the ingestion side): a near-miss cosine score with real entity
+    overlap still deserves the real adjudication tier below, not an
+    automatic "not similar enough, keep it." This only widens WHEN to ask
+    — it does not add a shortcut to assume duplicate, so the "don't guess
+    on the high side" reasoning above still holds unchanged."""
     threshold = config.publish.posted_dedup_threshold
+    gray_zone_floor = config.heat.related_threshold  # 0.6 — same constant the ingestion-side gray zone uses
 
     for candidate in ranked_batch:
         try:
@@ -102,7 +118,13 @@ async def find_publishable(
             embedding = await embedder.embed(candidate_content)
             similarity, matched_url, matched_content_raw = await posted_store.most_similar_recent(embedding)
 
-            looks_similar = similarity > threshold
+            entity_overlap_in_gray_zone = False
+            if matched_url and gray_zone_floor <= similarity <= threshold:
+                matched_content_for_gray_check = content_for_embedding(matched_content_raw, matched_url)
+                entity_overlap_in_gray_zone = bool(
+                    entity_tokens(candidate_content) & entity_tokens(matched_content_for_gray_check)
+                )
+            looks_similar = similarity > threshold or entity_overlap_in_gray_zone
             is_duplicate = False
             same_event_raw = ""
             resolved_by = ""
@@ -130,7 +152,8 @@ async def find_publishable(
                 "matched_url": matched_url,
                 "cosine_score": similarity,
                 "threshold": threshold,
-                "cosine_flagged": looks_similar,
+                "cosine_flagged": similarity > threshold,
+                "gray_zone_entity_overlap": entity_overlap_in_gray_zone,
                 "final_verdict": "duplicate" if is_duplicate else "kept",
             }
             if looks_similar:
@@ -147,19 +170,21 @@ async def find_publishable(
 
         if is_duplicate:
             logger.info(
-                "find_publishable: %s dropped — same_event() confirmed duplicate of already-posted content (cosine=%.3f > %.2f, matched %s)",
+                "find_publishable: %s dropped — same_event() confirmed duplicate of already-posted content (cosine=%.3f, threshold=%.2f, gray_zone_entity_overlap=%s, matched %s)",
                 candidate.url,
                 similarity,
                 threshold,
+                entity_overlap_in_gray_zone,
                 matched_url,
             )
             continue
         if looks_similar:
             logger.info(
-                "find_publishable: %s cosine-flagged (%.3f > %.2f) but %s said DIFFERENT — not treating as duplicate, matched %s",
+                "find_publishable: %s flagged (cosine=%.3f, threshold=%.2f, gray_zone_entity_overlap=%s) but %s said DIFFERENT — not treating as duplicate, matched %s",
                 candidate.url,
                 similarity,
                 threshold,
+                entity_overlap_in_gray_zone,
                 "has_date_conflict()" if resolved_by == "date_conflict_rule" else "same_event()",
                 matched_url,
             )
