@@ -844,6 +844,57 @@ def extract_event_frame(text: str) -> dict:
     return empty
 
 
+def is_cross_cycle_duplicate(
+    candidate_text: str, matched_text: str, cosine_score: float, semantic_threshold: float, related_threshold: float,
+) -> bool:
+    """Cross-cycle "is this candidate a duplicate of the most similar thing
+    already in the last N hours' embedding cache" call — 2026-09-07,
+    replacing a bare `cosine_score >= semantic_threshold` cutoff with the
+    same entity+date second opinion this module already applies elsewhere
+    (verify_compatibility()'s entity overlap, has_date_conflict()).
+
+    Real miss this closes: two real articles about the literal same event
+    (Xi Jinping's planned September business-delegation visit to
+    Washington, one via storm.mg, one via newtalk.tw, 48 minutes apart —
+    almost certainly different ingestion cycles, so intra-batch clustering
+    never got a chance to compare them directly) scored a REAL cosine of
+    0.795 against each other — 0.005 below the 0.8 cutoff this function
+    replaces. A single hard threshold has no way to recover from being
+    this close; entity overlap does, without needing the threshold itself
+    lowered (which would risk merging two textually-similar but genuinely
+    different stories instead).
+
+    - score >= semantic_threshold: near-verbatim duplicate, high enough
+      confidence that no second opinion is needed (unchanged behavior).
+    - score < related_threshold: not similar enough to be worth checking
+      further (unchanged behavior — this was already the "new_cluster"
+      case for intra-batch clustering, i.e. genuinely a different story).
+    - related_threshold <= score < semantic_threshold ("gray zone", not
+      resolved by cosine alone): a date conflict (has_date_conflict — e.g.
+      two different days' mortgage-rate reports) or a clearly different
+      extracted action/event_type (two ENGLISH articles only — CJK
+      extract_event_frame() always returns empty, per its own is_english()
+      gate, so this half of the check silently no-ops for the exact
+      cross-lingual case that motivated this fix, same fail-open
+      convention as the rest of this module) rules OUT a duplicate
+      regardless of entity overlap; otherwise, any shared entity token
+      (person, place, org) between the two texts is treated as a duplicate.
+      Zero entity overlap in the gray zone means "not similar enough to
+      confirm" — same fail-open bias as verify_compatibility()'s own
+      NO_OVERLAP path elsewhere in this module.
+    """
+    if cosine_score >= semantic_threshold:
+        return True
+    if cosine_score < related_threshold:
+        return False
+    if has_date_conflict(candidate_text, matched_text):
+        return False
+    frame_a, frame_b = extract_event_frame(candidate_text), extract_event_frame(matched_text)
+    if frame_a["event_type"] and frame_b["event_type"] and frame_a["event_type"] != frame_b["event_type"]:
+        return False
+    return bool(entity_tokens(candidate_text) & entity_tokens(matched_text))
+
+
 class HubIndex:
     """Persistent, cross-event 'how many distinct past events has this
     token/pair been the CORE of' counter — replaces a hand-maintained

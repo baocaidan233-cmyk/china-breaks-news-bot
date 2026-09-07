@@ -72,8 +72,10 @@ Check every one of these BEFORE you reason about Nexus Gate/Core Theme
 fit, not after.
 
 - Any title containing "China", "Chinese", "Xi Jinping", or "Wang Yi" (case-insensitive) — never below 5.
-- Any credible, significant update on the health of Xi Jinping, Vladimir Putin, or Donald Trump tied to governance or strategic decision-making — never below 8.
-- Any CCP senior leadership mention (Xi, Politburo members, Central Military Commission, CCDI, Ministry of State Security, Ministry of Foreign Affairs) — never below 5, even if the specific development is ceremonial.
+- **Any rumor, report, or claim about Xi Jinping's health or physical condition — never below 8, regardless of whether it can be confirmed true.** Do not discount an unconfirmed or disputed report as less scoreable than a "credible" one — attribute it as a claim in the writing stage (see content_gen_prompt.txt), but for SCORING purposes a health rumor about the CCP's top leader is always at least an 8 on its own, true or false.
+- Any credible, significant update on the health of Vladimir Putin or Donald Trump tied to governance or strategic decision-making — never below 8.
+- **Any real action or activity BY Xi Jinping himself** (not just a mention of him in passing) — never below 7, and use band 8-9 (section 2) when the action itself is escalatory or high-stakes. Xi's own conduct is this feed's single highest-priority subject; do not let "ceremonial" or "routine" reasoning cap this at 6.
+- Any CCP senior leadership mention (Politburo members, Central Military Commission, CCDI, Ministry of State Security, Ministry of Foreign Affairs) — never below 5, even if the specific development is ceremonial.
 - **Any head-of-state, head-of-government, or foreign-minister-level visit to or from China** — never below 6, even from a thin headline with no real description. A bilateral state visit is inherently a China-international-relations event; do not require a richer description to recognize this. (See section 2's band 7 "high-profile state visit" bullet for when this goes higher than 6.)
 - **Any direct CCP official statement** — a Ministry of Foreign Affairs/State Council spokesperson's own remarks at a press briefing, an official rebuttal, or a state-media editorial stating the Party's position — never below 7, even when the content itself sounds routine or reassuring ("China is committed to peace," "we oppose confrontation"). Exposing the CCP's own official narrative IS this channel's core mission (see Core Theme "Narrative Gaps & Euphemism Analysis" and "Propaganda & Soft Power Exposure" below) — a scripted talking point is not a marginal story just because it contains no new fact.
 
@@ -128,8 +130,10 @@ Anything below 5 is rejected and never enters the candidate pool — do not spen
 **Mandatory floors (apply regardless of band logic below):**
 
 - Any title containing "China", "Chinese", "Xi Jinping", or "Wang Yi" (case-insensitive) — never below 5.
-- Any credible, significant update on the health of Xi Jinping, Vladimir Putin, or Donald Trump tied to governance or strategic decision-making — never below 8.
-- Any CCP senior leadership mention (Xi, Politburo members, Central Military Commission, CCDI, Ministry of State Security, Ministry of Foreign Affairs) — never below 5, even if the specific development is ceremonial.
+- **Any rumor, report, or claim about Xi Jinping's health or physical condition — never below 8, regardless of whether it can be confirmed true.** Do not discount an unconfirmed or disputed report as less scoreable than a "credible" one — attribute it as a claim in the writing stage (see content_gen_prompt.txt), but for SCORING purposes a health rumor about the CCP's top leader is always at least an 8 on its own, true or false.
+- Any credible, significant update on the health of Vladimir Putin or Donald Trump tied to governance or strategic decision-making — never below 8.
+- **Any real action or activity BY Xi Jinping himself** (not just a mention of him in passing) — never below 7, and use band 8-9 (section 2) when the action itself is escalatory or high-stakes. Xi's own conduct is this feed's single highest-priority subject; do not let "ceremonial" or "routine" reasoning cap this at 6.
+- Any CCP senior leadership mention (Politburo members, Central Military Commission, CCDI, Ministry of State Security, Ministry of Foreign Affairs) — never below 5, even if the specific development is ceremonial.
 - Any direct CCP official statement (MFA/State Council spokesperson remarks, official rebuttal, state-media editorial stating the Party's position) — never below 7, even if the content itself sounds routine or reassuring.
 - Tech-war updates (chips, AI, critical minerals): incremental/transactional news (corporate sales agreements, routine licensing, small supplier deals) caps at 7 — reserve 8-9 for developments that materially shift China's strategic tech position (major export-control changes, treaty-level agreements, sweeping sanctions, large-scale alliance moves).
 

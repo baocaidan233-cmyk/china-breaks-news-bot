@@ -70,7 +70,7 @@ from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
 from core.config import load_config
-from core.event_identity import EventVerifier, HubIndex, entity_tokens, event_identity_text, extract_event_frame, log_decision, no_conflicting_specifics, verify_compatibility
+from core.event_identity import EventVerifier, HubIndex, entity_tokens, event_identity_text, extract_event_frame, is_cross_cycle_duplicate, log_decision, no_conflicting_specifics, verify_compatibility
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
@@ -466,8 +466,19 @@ async def run_cycle(
         preview_first_seen_dt = datetime.fromtimestamp(preview_first_seen, tz=timezone.utc)
 
         for c, embedding in members:
-            best_score = await qdrant_store.most_similar_recent(embedding)
-            if best_score >= threshold:
+            best_score, matched_content = await qdrant_store.most_similar_recent(embedding)
+            # 2026-09-07: was a bare `best_score >= threshold` cutoff — real
+            # miss found the same day: two articles about the literal same
+            # event (a Xi Jinping business-delegation visit story, one via
+            # storm.mg, one via newtalk.tw, ~48 minutes apart — almost
+            # certainly different ingestion cycles, so intra-batch
+            # clustering never got to compare them) scored a real cosine of
+            # 0.795, just under the 0.8 cutoff. is_cross_cycle_duplicate()
+            # adds the same entity/date second opinion this module already
+            # applies elsewhere instead of trusting a single raw number in
+            # that gray zone — see its own docstring in core/event_identity.py.
+            candidate_text = event_identity_text(c.title, c.description)
+            if is_cross_cycle_duplicate(candidate_text, matched_content, best_score, threshold, related_threshold):
                 logger.info("run_cycle: %s dropped — cross-cycle semantic duplicate (%.3f)", c.url, best_score)
                 continue
             c.heat_score = preview_heat
