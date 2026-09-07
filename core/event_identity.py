@@ -166,6 +166,26 @@ def _person_stem_short_forms() -> list[tuple[str, tuple[str, ...]]]:
     return sorted(pairs, key=lambda p: len(p[0]), reverse=True)
 
 
+def _joint_mention_lookup() -> dict[str, tuple[str, ...]]:
+    """compound (e.g. '川習會', lowercased) -> the FLATTENED word tokens of
+    every short_form it names, in order — see gazetteer_multilingual.json's
+    "joint_mentions" docstring (2026-09-07 fix for a real production miss:
+    a Chinese-media two-leader-summit shorthand like '川習會' names TWO
+    people at once, which the one-name-in/one-short_form-out shape of
+    _person_short_form_lookup() above can't represent). A compound match
+    emits every named person's token, same as if each had appeared as its
+    own separate PERSON span."""
+    with open(_MULTILINGUAL_GAZETTEER_PATH, encoding="utf-8") as f:
+        multilingual = json.load(f)
+    lookup: dict[str, tuple[str, ...]] = {}
+    for compound, short_forms in multilingual.get("joint_mentions", {}).get("pairs", []):
+        tokens: list[str] = []
+        for short_form in short_forms:
+            tokens.extend(_TOKEN_RE.findall(short_form.lower()))
+        lookup[compound.lower()] = tuple(tokens)
+    return lookup
+
+
 def _gazetteer_patterns() -> list[dict]:
     with open(_GAZETTEER_PATH, encoding="utf-8") as f:
         data = json.load(f)
@@ -188,6 +208,11 @@ def _gazetteer_patterns() -> list[dict]:
     # "Путиным"/"Путине" as well as the bare nominative).
     for stem, _short_form in multilingual.get("inflected_stems", {}).get("ru", []) + multilingual.get("inflected_stems", {}).get("pl", []):
         patterns.append({"label": "PERSON", "pattern": [{"TEXT": {"REGEX": f"(?i)^{re.escape(stem)}"}}]})
+    # Two-leader summit shorthand ("川習會" etc.) — tagged PERSON too so
+    # entity_tokens()'s joint-mention lookup (_JOINT_MENTION_LOOKUP) gets a
+    # chance to fire on it, same as any single-person gazetteer entry.
+    for compound, _short_forms in multilingual.get("joint_mentions", {}).get("pairs", []):
+        patterns.append({"label": "PERSON", "pattern": compound})
     # state_media — organizations, not people. Tagged ORG (not PERSON) so
     # entity_tokens()'s PERSON-only "keep last word" truncation never
     # applies to these — that truncation would otherwise mangle an org
@@ -228,6 +253,8 @@ def _register_cjk_gazetteer_words() -> None:
     for full_name, _short_form in _all_person_pairs(data, multilingual):
         if any(_is_cjk_char(ch) for ch in full_name):
             jieba.add_word(full_name)
+    for compound, _short_forms in multilingual.get("joint_mentions", {}).get("pairs", []):
+        jieba.add_word(compound)
 
 
 _register_cjk_gazetteer_words()
@@ -269,6 +296,7 @@ _TOKEN_RE = re.compile(r"[a-zA-Z']+")
 _TRAILING_POSSESSIVE_RE = re.compile(r"’s$|'s$")
 _PERSON_SHORT_FORMS = _person_short_form_lookup()
 _PERSON_STEM_SHORT_FORMS = _person_stem_short_forms()
+_JOINT_MENTION_LOOKUP = _joint_mention_lookup()
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
@@ -655,7 +683,14 @@ def entity_tokens(text: str) -> set[str]:
             # span, is what actually makes a non-Latin gazetteer entry
             # resolve to the same token as its English counterpart.
             cleaned_lower = cleaned.lower()
-            known_short = _PERSON_SHORT_FORMS.get(cleaned_lower)
+            # 2026-09-07: two-leader summit shorthand ("川習會" etc.) checked
+            # FIRST — it's a compound naming TWO people at once, which
+            # _PERSON_SHORT_FORMS' one-name-in/one-short_form-out shape
+            # can't represent; see gazetteer_multilingual.json's
+            # "joint_mentions" docstring for the real miss this closes.
+            known_short = _JOINT_MENTION_LOOKUP.get(cleaned_lower)
+            if not known_short:
+                known_short = _PERSON_SHORT_FORMS.get(cleaned_lower)
             if not known_short:
                 # Russian/Polish inflected form (e.g. "путиным",
                 # "witkoffem") — no exact match, but its stem does; see

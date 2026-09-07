@@ -6,6 +6,10 @@ import re
 from collections import Counter
 from urllib.parse import urlparse, urlunparse
 
+import jieba
+
+from core.language import _cjk_ratio, _is_cjk_char
+
 
 def sha256_url_hash(url: str) -> str:
     """SHA256 of the URL with query string/fragment stripped, full hex digest.
@@ -54,8 +58,28 @@ def tokenize(text: str) -> set[str]:
     rate on real data): generic domain nouns are capitalized in English
     regardless of specificity. idf() below, not capitalization, is what
     actually separates a generic/expected word from a rare/identifying
-    one."""
-    return set(re.findall(r"[a-z']+", text.lower()))
+    one.
+
+    2026-09-07: the plain `[a-z']+` regex alone returns an empty set for
+    any CJK text — confirmed on real China Breaks production data (a
+    Traditional Chinese Nepal/Tibet flood pair, genuinely the same event,
+    logged weighted_overlap_score 0.0 purely because this function found
+    zero tokens on either side, not because the two articles didn't share
+    real words). Chinese has no whitespace between words, so a bare regex
+    can't segment it at all; jieba.cut() gives real word boundaries, same
+    fix already applied to entity_tokens() in core/event_identity.py. Only
+    run when the text is actually majority-CJK (same validated ratio check
+    that module uses) — cheap to skip otherwise. Single-character CJK
+    tokens are dropped (jieba's own function words — "的"/"了"/"在" etc —
+    are almost always length 1; this is a blunt filter, not a real stopword
+    list, but keeps this fallback from drowning in particles)."""
+    tokens = set(re.findall(r"[a-z']+", text.lower()))
+    if _cjk_ratio(text) > 0.05:
+        tokens |= {
+            word for word in jieba.cut(text)
+            if len(word) > 1 and all(_is_cjk_char(ch) for ch in word)
+        }
+    return tokens
 
 
 def idf(token: str, doc_freq: Counter, doc_count: int) -> float:

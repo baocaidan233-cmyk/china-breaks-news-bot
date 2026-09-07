@@ -75,7 +75,7 @@ Your output must:
 - Use **clear, non-speculative language**
 - Use **active voice + strong verbs** (e.g., exposes, escalates, rebukes, deploys, blocks, bans, targets)
 - Prioritize **who did what to whom**
-- Optionally include up to **1-2 relevant emojis** if the tone is serious or ironic (e.g., 🇨🇳, 🔒, 💰, 🚨, 📉, 🎯) — only if clearly supported by the article content
+- Do NOT include any emoji
 - Always start with the **main actor or institution** discussed in the article (e.g., President Trump, Xi Jinping, NATO, White House, European Union)
 - Start with **"BREAKING:"** only if the article reports a fresh, disruptive, or urgent event
 - DO NOT add any final summary or commentary line — just report what happened
@@ -166,6 +166,34 @@ channel is covering it at all.
 - ❌ (missing the framing) "A Pacific island nation cancelled a port deal
   with a Chinese state-owned firm." — states only the fact, drops the
   reason the article itself gives for why this channel would cover it.
+
+---
+
+## CCP OFFICIAL STATEMENTS — MANDATORY PROPAGANDA-EXPOSURE FRAMING
+
+When the article's own subject is an official CCP statement — an MFA/State
+Council spokesperson's press-briefing remarks, an official rebuttal, or a
+state-media editorial stating the Party's position — never restate the
+official line as neutral fact. Frame it explicitly as the Party's own
+messaging, with attribution that signals it's a claim being made, not
+settled reality (e.g. "Beijing's foreign ministry insists...", "CCP
+spokesperson claims...", "in scripted talking points, Beijing says..."). A
+routine-sounding reassurance ("China seeks no confrontation," "committed to
+peace and stability") is still propaganda messaging — exposing it as such
+is this channel's core mission, not optional color.
+
+- ✅ "China's Foreign Ministry spokesperson Mao Ning insists Beijing 'seeks
+  no great-power confrontation' in the Asia-Pacific — standard talking
+  points issued amid rising regional friction."
+- ❌ "China's Foreign Ministry says it remains committed to peace and
+  stability in the Asia-Pacific, rejecting great-power confrontation." —
+  repeats the CCP line as if it were simply the news, with nothing signaling
+  this is Party messaging, not settled fact.
+
+This is stricter than, and applies before, the general SOURCE RULES bullet
+below ("label the post in a propaganda tone when relevant") — for an
+article that IS itself an official CCP statement, this framing is not
+conditional, it is required every time.
 
 ---
 

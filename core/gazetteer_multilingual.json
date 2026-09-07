@@ -87,6 +87,16 @@
       ["johnson", "Johnson"], ["zełensk", "Zelenskyy"], ["macron", "Macron"], ["starmer", "Starmer"]
     ]
   },
+  "joint_mentions": {
+    "_comment": "Chinese-media shorthand that fuses TWO leaders' surnames into one compound term for their summit/meeting (e.g. '川習會' = Chuan[Trump]+Xi+meeting = 'the Trump-Xi summit') — a real production miss found 2026-09-07: 'news.ltn.com.tw's own report on the same Trump-Xi AI-guardrails talks asia.nikkei.com covered got NO_OVERLAP because jieba's default dictionary mis-split '透過川習會' into '透'+'過川習'+'會', and even correctly segmented, this compound isn't any SINGLE registered PERSON name, so it could never match a one-person short_form lookup. Each entry maps the compound to the LIST of short_forms of every person it names (not one) — entity_tokens() emits ALL of them when this exact compound is matched, same as if both individual names had appeared separately. Every compound is also registered as a jieba word (see _register_cjk_gazetteer_words) so it survives segmentation as one unit instead of being split apart. Starting list only — the common 'X+Y+會/会' pattern recurs constantly in Chinese/Taiwanese headlines for whichever two leaders are meeting, so expand this as real ones are found missing, same as the rest of this file.",
+    "pairs": [
+      ["川習會", ["Trump", "Xi"]], ["川习会", ["Trump", "Xi"]],
+      ["習川會", ["Xi", "Trump"]], ["习川会", ["Xi", "Trump"]],
+      ["普習會", ["Putin", "Xi"]], ["普习会", ["Putin", "Xi"]],
+      ["普特會", ["Putin", "Trump"]], ["普特会", ["Putin", "Trump"]],
+      ["川金會", ["Trump", "Kim"]], ["川金会", ["Trump", "Kim"]]
+    ]
+  },
   "role_terms_reference": {
     "_comment": "Multilingual glossary of the 6 role categories, per user's request — NOT wired into entity_tokens()/matching (a bare role word like '外交部长' shared between two articles about two different foreign ministers would cause false same-event merges if used as a matching token; GPT-4o-mini already understands these roles natively in every language when scoring/writing, so this table's real use is as an editorial/human reference, or a future building block if a different feature needs it). fa left empty, no verified source.",
     "mp": {"en": ["MP", "Member of Parliament", "Senator", "Congressman", "Congresswoman", "Representative"], "zh_hans": ["议员"], "zh_hant": ["議員"], "ru": ["депутат", "сенатор"], "fa": [], "pl": ["poseł", "senator"], "fr": ["député", "sénateur"], "de": ["Abgeordneter", "Bundestagsabgeordneter"]},
