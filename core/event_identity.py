@@ -346,6 +346,14 @@ def _build_china_signal_keywords() -> frozenset[str]:
         "russia", "russian", "moscow", "kremlin",
         "iran", "iranian", "tehran",
         "north korea", "pyongyang", "kim jong",
+        # 2026-09-07: native-language "China"/"Chinese" terms for the other
+        # covered languages — found missing via a real test case (a
+        # Russian lenta.ru headline naming only "Китая," no gazetteer
+        # PERSON, no English word) that should have signaled but didn't.
+        "китай", "китайск", "кнр",  # Russian: China, Chinese (stem), PRC
+        "chiny", "chińsk",  # Polish: China, Chinese (stem)
+        "chine", "chinois",  # French: China, Chinese
+        "chinesisch",  # German: Chinese (German "China" itself already matches the English keyword above, same spelling)
     }
     for full_name, short_form in _all_person_pairs(data, multilingual):
         keywords.add(full_name.lower())
@@ -371,11 +379,34 @@ def _build_china_signal_keywords() -> frozenset[str]:
 _CHINA_SIGNAL_KEYWORDS = _build_china_signal_keywords()
 
 
+def _china_signal_pattern(kw: str) -> str:
+    """ASCII keywords get \\b word-boundary anchors — a plain substring
+    scan found real false positives (2026-09-07): "uk" (from the GPE
+    gazetteer's "UK Britain United Kingdom" alias string) matched inside
+    "termasuk," and "ma" (from "Ma Xingrui" -> "Ma") matched inside
+    "hukuman" — both real Malaysian-language headlines with zero China
+    connection. \\b is meaningless for CJK/Cyrillic script (no whitespace
+    between words to anchor on, and Python's \\b treats those characters
+    as \\w anyway), so those keywords stay a plain substring pattern,
+    which is safe there — a 2+ character Chinese/Russian name is not the
+    kind of generic word-fragment collision risk "xi"/"ma"/"uk" are in
+    English."""
+    escaped = re.escape(kw)
+    return rf"\b{escaped}\b" if kw.isascii() else escaped
+
+
+_CHINA_SIGNAL_RE = re.compile(
+    "|".join(_china_signal_pattern(kw) for kw in sorted(_CHINA_SIGNAL_KEYWORDS, key=len, reverse=True)),
+    re.IGNORECASE,
+)
+
+
 def has_china_signal(text: str) -> bool:
-    """Cheap, pre-LLM relevance pre-filter (2026-09-07) — a plain substring
-    scan against every gazetteer name/place plus a fixed Nexus-Gate keyword
-    list, reusing data this module already loads for entity_tokens(). No
-    LLM call, no embedding call — pure Python, negligible cost.
+    """Cheap, pre-LLM relevance pre-filter (2026-09-07) — a word-boundary-
+    aware regex scan against every gazetteer name/place plus a fixed
+    Nexus-Gate keyword list, reusing data this module already loads for
+    entity_tokens(). No LLM call, no embedding call — pure Python,
+    negligible cost.
 
     Real production motivation: a same-day audit of ~5000 agents/scorer.py
     calls found 2269 (45.6%) scored exactly 4.0 — the rubric's own
@@ -395,9 +426,17 @@ def has_china_signal(text: str) -> bool:
     log_decision() (check_type="prefilter_reject") specifically so this
     residual gap surfaces as auditable data instead of silently recurring
     forever — same philosophy as verify_compatibility()'s own logged
-    rule-tier misses."""
-    lowered = text.lower()
-    return any(kw in lowered for kw in _CHINA_SIGNAL_KEYWORDS)
+    rule-tier misses.
+
+    One further known, accepted residual: a short real name that's also a
+    generic word/given-name in English ("Kim" from "Kim Jong Un") can
+    still collide as a whole word — e.g. "Kim Aris" (Aung San Suu Kyi's
+    son, no China connection at all) matches on "kim." This never causes
+    a missed real story: a false match here just means the real LLM
+    scorer still gets called (and correctly rejects it) — the failure
+    mode is "spent one extra LLM call," never "silently skipped a real
+    China story," same fail-open bias as the rest of this module."""
+    return bool(_CHINA_SIGNAL_RE.search(text))
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
