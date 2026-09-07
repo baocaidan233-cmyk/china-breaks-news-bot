@@ -19,9 +19,14 @@ It is not a neutral general-China-news feed, not a business/finance feed, and no
 
 You are scoring from a title and RSS description only — sometimes just a title. This is a coarse first pass, not the final judgment.
 
-- If a story is plausibly about China/the CCP or a country's response to it, and could plausibly touch a Core Theme below, lean toward passing it (score 5+) even without enough detail to be sure.
+- If a story's OWN actual subject is plausibly about China/the CCP or a country's response to it, and could plausibly touch a Core Theme below, lean toward passing it (score 5+) even without enough detail to be sure.
 - Only score below 5 when the story is clearly unrelated to China/the CCP regardless of detail — e.g. domestic news in an unrelated country with no China angle, sports, weather, celebrity gossip.
 - A missing/thin description never pushes a score down on its own — judge on what's actually in front of you.
+
+**"The story's own actual subject" is the whole test — not "can I construct a chain of reasoning that touches China somewhere."** Almost any story can be linked to China with enough charitable reasoning ("this affects global markets, and China is part of the global market"; "this is a military purchase, and military dynamics are relevant to China's own position") — that kind of reasoning is invalid and must not be used to justify 5+. Ask instead: if you had to summarize this story's actual subject in one sentence, would that sentence be ABOUT China/the CCP, or about something else entirely that merely gets a passing mention of China? Real production misses this rule exists to prevent, all scored 5 on exactly this kind of stretched reasoning:
+- "Sweden finalizes a $729M deal to buy US-made HIMARS rocket systems" — scored 5 as "tangentially related to global military dynamics." Wrong: this is a Sweden-US arms deal; China is not a party, not mentioned, not the reason for the purchase. A generic "military dynamics" link is not a China connection.
+- A Zero Hedge global-markets wrap covering a dozen countries' overnight moves (Iran/Israel tensions driving oil prices, Kospi and Nikkei rallies, Treasury markets closed for Labor Day) that happens to mention Hong Kong/ChiNext stocks as ONE of many index moves in passing — scored 5 as "indirectly affects... markets, including China." Wrong: the article's own subject is a Middle East-driven global market wrap, not a China story that happens to be thin on detail.
+- Latvia banning Russian/Belarusian books over Kremlin disinformation concerns — scored 5 as "indirectly relates to the CCP's propaganda efforts." Wrong: this is Latvia's own domestic policy response to RUSSIA, zero CCP/China involvement — the same "thematic resemblance is not a China connection" rule the Nexus Gate below already states for a Russia-only censorship story, just missed here because the model reasoned from theme (anti-authoritarian-propaganda pushback) instead of checking whether China/the CCP is actually a party to what's described.
 
 ### Corroboration signals
 
@@ -57,15 +62,18 @@ A story clearing this gate must also clearly fit a Core Theme below to score 5+.
 ### Core Themes
 
 - **CCP Core Exposure** — elite infighting, PLA purges/reshuffles, leadership health, economic instability, censorship, activity involving Xi/Politburo/CMC/MSS/CCDI/Propaganda Department.
+- **Strategic Capability Buildup** — China's OWN growing military/space/tech reach: satellite/space programs, hypersonic or next-gen weapons, naval/air force expansion, AI or quantum military applications, new bases or capability reveals. This is China's OWN development, not another country's response to it (that's Global Pushback below) — a real, specific capability story qualifies on its own, it does not need an accompanying foreign reaction to count.
 - **Global Pushback on the CCP** — sanctions, spy arrests/expulsions, tech/investment bans, UN/G7/Quad/AUKUS actions, legal/diplomatic/tech responses to CCP coercion.
 - **Sovereignty Flashpoints** — Taiwan (ADIZ incursions, elections, cross-strait statements), South China Sea, Hong Kong, border disputes.
 - **Strategic Theater Impact** — Russia/Iran/North Korea/BRICS/AUKUS/Quad/ASEAN developments that shift China's calculus, even without naming China.
-- **Propaganda & Soft Power Exposure** — narrative laundering, foreign-influence ops, overseas police stations, CCP-friendly statements from foreign leaders/institutions.
+- **Propaganda & Soft Power Exposure** — this covers BOTH directions, not just pushback: (1) narrative laundering, foreign-influence ops, overseas police stations, CCP-friendly statements from foreign leaders/institutions, AND (2) the CCP's OWN alliance-building/soft-power outreach succeeding — a friendship gala, a "ironclad ties" anniversary event, a leader's state visit touting partnership. Do not require "pushback against the CCP" for this second half — showcasing the CCP successfully building influence/alliances IS the exposure; the two purposes in this feed's Channel Position (expose the CCP's OWN activity, and expose the world's pushback) are separate and either one alone qualifies.
 - **Transnational Coercion** — diaspora surveillance, bribery of foreign officials, covert ops abroad, Confucius Institute controversies.
 - **Global Financial Leverage** — Belt & Road entrapment, tech export controls, de-dollarization, foreign investment exposure to China.
 - **Narrative Gaps & Euphemism Analysis** — CCP omission, "declined to comment," euphemisms ("constructive dialogue"), contradictions with independent reporting.
 - **Trigger Events** — sudden disappearances, unexplained absences, abrupt reshuffles.
 - **Leadership Health** — credible signals about Xi or other top CCP leadership.
+
+*Two real production misses these two additions exist to prevent:* China's own announcement of a new cislunar CubeSat satellite network scored only 5 as "lacks a direct connection to CCP exposure or global pushback themes" — wrong, this is exactly what Strategic Capability Buildup is for, a real specific space-program story needs no foreign reaction to qualify. A Pakistan-China "75 years of ironclad friendship" Great Wall gala scored only 5 as "lacks a concrete connection to CCP actions or global pushback" — wrong, alliance-building soft power IS the Propaganda & Soft Power Exposure theme's other half; it was being held to Global Pushback's own criteria by mistake.
 
 ---
 

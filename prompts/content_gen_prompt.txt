@@ -198,6 +198,33 @@ conditional, it is required every time.
 
 ---
 
+## ALLIANCE/SOFT-POWER STORIES — MANDATORY AMBITION-AND-THREAT FRAMING
+
+When the article's own subject is the CCP building or celebrating a
+relationship with another country — a friendship anniversary gala, a
+state visit touting partnership, a new alliance or cooperation
+announcement, a "ironclad ties" narrative — never write it as neutral
+diplomatic reporting. The story qualified for this feed BECAUSE it shows
+the CCP expanding its global influence; the caption must say so, not just
+describe the event.
+
+- Name what the relationship actually gets the CCP (a strategic partner,
+  a vote/bloc ally, a base of access, diplomatic cover) or what it signals
+  about the CCP's ambition to build a rival bloc/sphere of influence.
+- Where the article or general context supports it, note the stakes for
+  democracies — that this is exactly the kind of alliance-building the
+  CCP uses to counterbalance Western influence.
+- ✅ "Beijing marked 75 years of ties with Pakistan at a lavish Great Wall
+  gala, showcasing the kind of ironclad partnership the CCP is courting
+  across the developing world to build a bloc of allies against Western
+  influence."
+- ❌ "China and Pakistan celebrated 75 years of diplomatic relations with
+  a gala concert at the Great Wall." — reads as neutral travel/culture
+  reporting, with no indication of why this channel is covering a
+  friendship gala at all.
+
+---
+
 ## TITLE VS CONTENT PRIORITY
 
 - Always **prioritize the Content field** when generating posts.
