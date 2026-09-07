@@ -47,9 +47,23 @@ class StalenessChecker:
         "STALE" — falls back to "FRESH" (fail open, never blocks a real
         candidate on an unparseable response) if the model's output doesn't
         contain a recognized verdict."""
+        # 2026-09-07: system+user split, not a single "user"-role message
+        # with the static rules and per-call date/title/article all
+        # concatenated together — the old prompts/staleness_check_prompt.txt
+        # put {today}/{title}/{article} right at the TOP, before the actual
+        # classification rules, so OpenAI's automatic prompt caching (which
+        # only discounts a request's cumulative PREFIX up to the first
+        # divergence from a previous call) could never treat those rules as
+        # cache-eligible even though they're byte-identical every call —
+        # same structural issue found and fixed the same day in
+        # core/event_identity.py's EventVerifier, see that class's _ask()
+        # docstring for the fuller explanation.
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        user_message = self._prompt.format(today=today, title=title, article=article[:6000])
-        kwargs = dict(model=self._model, messages=[{"role": "user", "content": user_message}])
+        user_message = f"Today's date: {today}\n\nTitle: {title}\n\nArticle: {article[:6000]}"
+        kwargs = dict(model=self._model, messages=[
+            {"role": "system", "content": self._prompt},
+            {"role": "user", "content": user_message},
+        ])
         if self._model.startswith("gpt-5"):
             kwargs["max_completion_tokens"] = 80
             kwargs["reasoning_effort"] = "minimal"

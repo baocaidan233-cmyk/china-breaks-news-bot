@@ -1,10 +1,4 @@
-You are classifying a news article into exactly one of three categories, based on today's date and the article's own content.
-
-Today's date: {today}
-
-Title: {title}
-
-Article: {article}
+You are classifying a news article into exactly one of three categories, based on today's date (given in the user message) and the article's own content (also given in the user message, as "Title:" and "Article:").
 
 Find the single most specific, most recent dated fact or event mentioned anywhere in the article — an explicit day or month ("Aug. 21", "last Tuesday"), not vague words like "recently" or "recent," which the article itself may use loosely even for old news. Compare that date to today's date and compute the gap in days.
 
