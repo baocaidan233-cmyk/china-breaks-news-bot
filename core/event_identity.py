@@ -327,6 +327,78 @@ _PERSON_STEM_SHORT_FORMS = _person_stem_short_forms()
 _JOINT_MENTION_LOOKUP = _joint_mention_lookup()
 _GPE_SHORT_FORMS = _gpe_short_form_lookup()
 
+
+def _build_china_signal_keywords() -> frozenset[str]:
+    """Every gazetteer name/place (lowercased) plus a fixed list of
+    Nexus-Gate keywords (scoring_prompt.txt section 1) — the full
+    vocabulary has_china_signal() scans for. Reuses the same two JSON
+    files entity_tokens() already loads; built once at import time, same
+    convention as _PERSON_SHORT_FORMS/_GPE_SHORT_FORMS above."""
+    with open(_GAZETTEER_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    with open(_MULTILINGUAL_GAZETTEER_PATH, encoding="utf-8") as f:
+        multilingual = json.load(f)
+    keywords = {
+        "china", "chinese", "beijing", "ccp", "cpc", "communist party",
+        "hong kong", "macau", "taiwan", "xinjiang", "tibet",
+        "south china sea", "east china sea", "taiwan strait",
+        "belt and road", "brics", "aukus", "quad", "asean", "indo-pacific",
+        "russia", "russian", "moscow", "kremlin",
+        "iran", "iranian", "tehran",
+        "north korea", "pyongyang", "kim jong",
+    }
+    for full_name, short_form in _all_person_pairs(data, multilingual):
+        keywords.add(full_name.lower())
+        if short_form:
+            keywords.add(short_form.lower())
+    for full_name, short_form in data.get("state_media", []):
+        keywords.add(full_name.lower())
+        if short_form:
+            keywords.add(short_form.lower())
+    for alias in data.get("aliases", []):
+        keywords.add(alias.lower())
+    for full_name, aliases in multilingual.get("gpe_places", {}).get("pairs", []):
+        keywords.add(full_name.lower())
+        keywords.update(aliases.lower().split())
+    for compound, _short_forms in multilingual.get("joint_mentions", {}).get("pairs", []):
+        keywords.add(compound.lower())
+    for lang_stems in (multilingual.get("inflected_stems", {}).get("ru", []), multilingual.get("inflected_stems", {}).get("pl", [])):
+        for stem, _short_form in lang_stems:
+            keywords.add(stem.lower())
+    return frozenset(keywords)
+
+
+_CHINA_SIGNAL_KEYWORDS = _build_china_signal_keywords()
+
+
+def has_china_signal(text: str) -> bool:
+    """Cheap, pre-LLM relevance pre-filter (2026-09-07) — a plain substring
+    scan against every gazetteer name/place plus a fixed Nexus-Gate keyword
+    list, reusing data this module already loads for entity_tokens(). No
+    LLM call, no embedding call — pure Python, negligible cost.
+
+    Real production motivation: a same-day audit of ~5000 agents/scorer.py
+    calls found 2269 (45.6%) scored exactly 4.0 — the rubric's own
+    "clearly unrelated" bucket — on titles a hand-check confirmed have no
+    plausible China/CCP angle at all (a Korean opinion column, an Indian
+    tuition-fee policy story, a Malaysian scam-penalty bill, a Myanmar
+    democracy-activist story). Paying for a multi-thousand-token
+    gpt-4o-mini call to reject these is pure waste; this catches the
+    unambiguous case for free before Scorer.score() ever runs — main.py
+    only calls the real LLM scorer when this returns True.
+
+    Deliberately conservative in one specific, disclosed way: coverage
+    matches exactly what this module's gazetteer already covers (English +
+    zh_hans/zh_hant/ru/pl/fr/de) — a genuine China story published ONLY in
+    a language this project hasn't built entries for yet (Korean, Burmese,
+    Malay, ...) could be wrongly skipped. main.py logs every skip via
+    log_decision() (check_type="prefilter_reject") specifically so this
+    residual gap surfaces as auditable data instead of silently recurring
+    forever — same philosophy as verify_compatibility()'s own logged
+    rule-tier misses."""
+    lowered = text.lower()
+    return any(kw in lowered for kw in _CHINA_SIGNAL_KEYWORDS)
+
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
 # ported unchanged (a lookup miss is just a no-op, effectively inert for

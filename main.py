@@ -70,7 +70,7 @@ from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
 from core.config import load_config
-from core.event_identity import EventVerifier, HubIndex, entity_tokens, event_identity_text, extract_event_frame, is_cross_cycle_duplicate, log_decision, no_conflicting_specifics, verify_compatibility
+from core.event_identity import EventVerifier, HubIndex, entity_tokens, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, log_decision, no_conflicting_specifics, verify_compatibility
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
@@ -498,8 +498,29 @@ async def run_cycle(
     # to be true at runtime.
     trending_headlines = await fetch_trending_headlines()
     scored: list[tuple] = []  # (candidate, embedding, cluster_idx, passed)
+    prefiltered_count = 0
     for c, embedding, cluster_idx in scoring_candidates:
         try:
+            # 2026-09-07 cost fix: a real audit found 45.6% of a day's
+            # Scorer calls (2269/4969) scored exactly 4.0 — the rubric's
+            # own "clearly unrelated" floor — on titles hand-confirmed to
+            # have zero plausible China/CCP angle (Korean opinion column,
+            # Indian tuition-fee policy, Malaysian scam-penalty bill,
+            # Myanmar activist story). has_china_signal() catches this
+            # unambiguous case for free (pure Python, no LLM/embedding
+            # cost) before ever paying for the real gpt-4o-mini call — see
+            # its own docstring in core/event_identity.py for the
+            # disclosed residual gap (languages this gazetteer doesn't
+            # cover yet) and why every skip is logged for audit.
+            candidate_text = event_identity_text(c.title, c.description)
+            if not has_china_signal(candidate_text):
+                prefiltered_count += 1
+                log_decision(config, {
+                    "check_type": "prefilter_reject",
+                    "candidate_url": c.url,
+                    "candidate_text": candidate_text,
+                })
+                continue
             score_output = await scorer.score(c, trending_headlines)
             if score_output is None:
                 continue
@@ -511,6 +532,11 @@ async def run_cycle(
             scored.append((c, embedding, cluster_idx, passed))
         except Exception:
             logger.exception("run_cycle: unhandled error scoring %s, skipping this item", c.url)
+    if prefiltered_count:
+        logger.info(
+            "run_cycle: %d/%d skipped Scorer LLM call (no China/CCP signal, pre-filter)",
+            prefiltered_count, len(scoring_candidates),
+        )
 
     added_count = 0
     for cluster_idx, cluster in enumerate(clusters):
