@@ -129,7 +129,17 @@
       ["平壤", "Pyongyang"],
       ["布鲁塞尔", "Brussels"], ["布魯塞爾", "Brussels"],
       ["台北", "Taipei"],
-      ["上海", "Shanghai"]
+      ["上海", "Shanghai"],
+      ["南京", "Nanjing"],
+      ["深圳", "Shenzhen"],
+      ["广州", "Guangzhou"], ["廣州", "Guangzhou"],
+      ["武汉", "Wuhan"], ["武漢", "Wuhan"],
+      ["成都", "Chengdu"],
+      ["西安", "Xian Xi'an"],
+      ["杭州", "Hangzhou"],
+      ["重庆", "Chongqing"], ["重慶", "Chongqing"],
+      ["天津", "Tianjin"],
+      ["沈阳", "Shenyang"], ["瀋陽", "Shenyang"]
     ]
   },
   "joint_mentions": {
