@@ -59,7 +59,16 @@ class Scorer:
             kwargs["max_completion_tokens"] = 500
             kwargs["reasoning_effort"] = "minimal"
         else:
-            kwargs["temperature"] = 0.3
+            # 2026-09-07: was 0.3 — real production evidence found two
+            # articles about the literal same event (an EU "Buy European"
+            # procurement story, one via Google News/FT, one via a Chinese
+            # Sputnik translation) scoring 7 and 6 respectively, with
+            # near-identical llm_comment reasoning. Sampling temperature was
+            # part of that inconsistency; every other consequential judgment
+            # call in this codebase (EventVerifier's same_event/
+            # classify_subtype in core/event_identity.py) already runs at
+            # temperature=0 for exactly this reason.
+            kwargs["temperature"] = 0
             kwargs["max_tokens"] = 500
         resp = await self._client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content or ""

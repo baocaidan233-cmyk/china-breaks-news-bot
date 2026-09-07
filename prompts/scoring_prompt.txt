@@ -29,6 +29,37 @@ Alongside the title/description, you'll also receive `heat_score`, `hours_since_
 
 Both corroboration signals are one-directional (see section 2) — presence can only raise a score, never lower one; absence (low heat_score, no trending overlap) is never evidence a story is unimportant — real CCP-relevant stories mainstream media buries or under-covers are exactly what this feed exists to surface.
 
+**This job is to report what the news says, not to verify it or fact-check
+it, and this feed does NOT require independent multi-source confirmation
+before something counts as news.** A government's own announcement, an
+official spokesperson's statement, or a single-outlet report are all
+complete, scoreable stories on their own — most real government
+communications never come with "substantive detail" or "corroboration
+from multiple sources" in the first place, and treating that absence as a
+weakness would systematically underscore exactly the official-statement
+and single-source-scoop stories this channel exists to cover.
+
+**2026-09-07, real recurring violation found in production (28% of a
+234-candidate sample referenced corroboration/multiple-source language in
+llm_comment, several of them using its ABSENCE to justify a lower score —
+exactly backwards from the rule above):**
+- "...it lacks broader significance or corroboration from multiple
+  sources, limiting its impact." (scored 5, on an MFA spokesperson
+  statement — an official government statement doesn't need multi-source
+  corroboration to be real news)
+- "...currently has low corroboration (heat_score=1.0) and is not a
+  high-profile event, which limits its score to a solid but routine
+  coverage level." (scored 6, on a Nikkei-sourced report about an upcoming
+  Trump-Xi summit's AI-safety agenda)
+
+**If your own reasoning is about to say a story "lacks corroboration,"
+"lacks confirmation from multiple sources," or "lacks substantive
+detail/depth" as a reason the score is lower — stop, that reasoning is
+invalid, and do not write it. Score using Nexus Gate + Core Theme fit
+(section 1) and the score bands (section 2) only. heat_score/trending can
+add to a score per section 2's explicit corroboration bullets; they must
+never be cited as a reason to withhold one.**
+
 ---
 
 ## 0. MANDATORY FLOORS — CHECK THESE FIRST, BEFORE ANYTHING ELSE
@@ -77,6 +108,21 @@ A story that clears this gate must then also clearly fit one of the Core Themes 
 
 ## 2. SCORE BANDS — 5 IS THE FLOOR, DIFFERENTIATE 6-10
 
+**2026-09-07 — this section was restructured, not patched, after several
+real production scores landed at 5-6 on stories that squarely belong on
+this feed** (an MFA/embassy statement scored 5 for "lacking corroboration";
+a report on China's secret desert-airbase next-gen-aircraft program capped
+at 6; a Guardian/Eurometal report on China's trade competition costing the
+EU hundreds of thousands of jobs scored 5 for "no specific response from
+the world against the CCP"). The common root cause: the old version of
+this section required a Core Theme fit to ALSO clear a second, narrower
+bar — a "trigger event," a heat_score threshold, or third-party
+corroboration — before it could reach 7. That second bar is gone. A
+concrete, specific story that squarely fits a Core Theme is worth 7 on
+that basis ALONE — this channel's whole reason to exist is reporting
+exactly this kind of story, not a subset of it that also happens to be
+dramatic or well-corroborated.
+
 Anything below 5 is rejected and never enters the candidate pool — do not spend effort fine-grading rejects. Everything at 5 or above must land in exactly one band below — check 9-10 first, then 8, then 7, then 6, and use the highest band where ANY one bullet (thematic or corroboration) applies.
 
 **Mandatory floors (apply regardless of band logic below):**
@@ -94,22 +140,45 @@ Anything below 5 is rejected and never enters the candidate pool — do not spen
 - Sweeping, treaty-level sanctions or export-control regime targeting China
 - Use 10 only for the rare event that is historic in scale (open conflict, a top-leader removal); 9 is the practical ceiling for everything else on this list.
 
-**8 — Major real-time trigger.** A concrete, fresh, high-engagement event, but not at the severity above:
+**8 — Major, escalatory, or high-stakes concrete development.** A specific,
+high-impact story, distinct from ordinary Core Theme coverage (band 7)
+because of its severity or reach — NOT because it happens to be
+better-corroborated:
 
-- Spy arrest, expulsion, or major sanctions announcement
-- ADIZ incursion, naval standoff, or other sovereignty-flashpoint incident
-- Whistleblower leak or credible leadership-health signal
-- **Corroboration bullet:** `heat_score` >= 10 — a dozen or more outlets actively covering this exact event right now.
+- Spy arrest, expulsion, or major sanctions/export-control announcement
+- ADIZ incursion, naval standoff, live confrontation, or other acute sovereignty-flashpoint incident
+- Whistleblower leak, credible leadership-health signal, or a confirmed reveal of a previously-secret/covert CCP military program, weapons system, or strategic capability (e.g. an undisclosed base, a hidden next-gen weapons project, a covert coercion operation) — the secrecy/reveal itself is what makes this major, independent of how many outlets have it yet
+- A head-of-state-level summit whose AGENDA carries major strategic weight (a first-ever meeting, a war/peace decision, a major security pact) — an ordinary or routine bilateral visit stays at the section-0 floor (6) or band 7, not here
+- **Corroboration bullet (can only ADD, never required):** `heat_score` >= 10 — a dozen or more outlets actively covering this exact event right now.
 
-**7 — Strong thematic engagement, no single trigger event.** On-theme (section 1) and additionally hits one of:
+**7 — Default score for a genuine, concrete Core Theme fit.** This is
+where most real on-theme reporting belongs, not a special tier above
+ordinary coverage. Score 7 whenever a story clears the Nexus Gate (section
+1) and its actual facts — not just its subject matter — specifically match
+one of the Core Themes: a real instance of CCP repression, military
+activity, economic exposure, or coercion; a real, concrete action (not a
+vague gesture) by a foreign government/institution against or for the
+CCP; a real sovereignty-flashpoint incident; a real reveal of propaganda,
+narrative-laundering, or a CCP statement's gap with independent reporting.
+Do not require, on top of that fit, a "trigger event," a heat_score
+threshold, or independent multi-source corroboration (see the
+Corroboration section above) — the Core Theme fit is sufficient by
+itself. `heat_score`/trending overlap can still push a 7 up to 8 per the
+band above; their absence never holds a story at 6 that otherwise fits
+this band.
 
-- A foreign government or institution takes a concrete anti-CCP or pro-CCP action (defense pact, tech ban, high-profile state visit)
-- CCP elite infighting, reshuffle, or economic-instability signal without a single dramatic trigger
-- **Corroboration bullet:** `heat_score` 4.0–9.9, OR the topic clearly overlaps a currently trending China/CCP headline.
-
-**6 — Solid, routine on-theme coverage.** Clearly fits a Core Theme above but doesn't hit any escalation criteria above — the ordinary, steady-state story that belongs on this channel.
-
-- **Corroboration bullet:** `heat_score` 2.0–3.9 — a couple of other outlets already corroborating this exact event.
+**6 — Weak, vague, or merely tangential Core Theme connection.** The
+story mentions China/the CCP, but once you look at what it actually
+says, one of these is true: the connection to a Core Theme requires real
+inference or stretching to see; the content is almost entirely hedged,
+speculative, or aspirational language with no concrete fact, action, or
+statement to point to (e.g. analysts' general risk assessment, "could,"
+"may," with no real event); or it's genuinely ceremonial/routine with
+nothing substantive in it. This is NOT where a story lands just because
+it lacks corroboration, detail, or drama — a thin RSS description of a
+real, concrete on-theme event is still a 7 (see "Working from limited
+information" above); a rich, well-corroborated description of something
+genuinely vague or aspirational is still a 6.
 
 **5 — Marginal.** Tangential connection to a Core Theme; borderline whether it belongs at all. This is the floor — below 5, reject without further grading.
 
