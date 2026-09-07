@@ -404,6 +404,34 @@ def _build_china_signal_keywords() -> frozenset[str]:
         "港澳办", "港澳辦",  # HKMAO
         "国台办", "國台辦",  # TAO
         "证监会", "證監會",  # CSRC
+        # 2026-09-07: Russian/German/French institution names — deliberately
+        # PARTIAL, not the full 16-institution set above. Scoped to the
+        # handful this project has real, confident terminology for (PLA,
+        # MFA, CMC, PBOC, MOFCOM, BRI) — these recur often enough in
+        # standard Russian/German/French geopolitical reporting on China
+        # that the standard term is well-established, unlike the more
+        # obscure agencies (CPPCC/MPS/CAC/HKMAO/TAO/CSRC), where guessing
+        # at unfamiliar official terminology risks an entry that's just
+        # wrong (and so silently useless) rather than actually helping.
+        # Japanese/Persian/Vietnamese deliberately NOT attempted at all —
+        # same "don't fill in without an independently-verified source"
+        # rule already applied to Persian's empty entries elsewhere in
+        # this file; this project has no strong footing in any of those
+        # three languages' institution terminology yet.
+        "ноак",  # Russian: PLA (Народно-освободительная армия Китая)
+        "мид китая",  # Russian: MFA ("МИД" alone is generic — any country's foreign ministry — so qualified with "Китая")
+        "центральный военный совет",  # Russian: CMC
+        "народный банк китая",  # Russian: PBOC
+        "министерство коммерции китая",  # Russian: MOFCOM
+        "один пояс, один путь", "пояс и путь",  # Russian: BRI, both real phrasings seen in practice
+        "volksbefreiungsarmee",  # German: PLA
+        "chinesisches außenministerium",  # German: MFA
+        "zentrale militärkommission",  # German: CMC
+        "neue seidenstraße",  # German: BRI (the common German term, not a literal translation of the English name)
+        "armée populaire de libération",  # French: PLA
+        "ministère chinois des affaires étrangères",  # French: MFA
+        "commission militaire centrale",  # French: CMC
+        "nouvelle route de la soie",  # French: BRI (the common French term, not a literal translation of the English name)
     }
     for full_name, short_form in _all_person_pairs(data, multilingual):
         keywords.add(full_name.lower())
