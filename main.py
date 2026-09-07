@@ -56,6 +56,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import sys
 import time
 from collections import Counter
@@ -70,7 +71,7 @@ from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
 from core.config import load_config
-from core.event_identity import EventVerifier, HubIndex, entity_tokens, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, log_decision, no_conflicting_specifics, verify_compatibility
+from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, log_decision, no_conflicting_specifics, verify_compatibility
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
@@ -80,6 +81,35 @@ from core.redis_store import RedisStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
+
+_TITLE_DUP_STRIP_RE = re.compile(r"<[^>]+>|\s+")
+
+
+def _looks_like_title_duplicate(title: str, description: str) -> bool:
+    """True when `description` carries no real information beyond
+    restating `title` — 2026-09-07, widening Layer 1.6's backfill trigger
+    below. Real miss found via a Qdrant event-store audit: a Google News
+    aggregator RSS entry's own "description" field is often just the
+    title again, sometimes wrapped in an HTML link — non-empty, so it
+    never tripped the OLD `if c.description: continue` skip, starving
+    event_identity_text() (title + first sentence of description) of any
+    real content. Confirmed root cause of a real production fragmentation
+    (a single "China pumps $54B into banks/insurers" story split into 5
+    separate chinabreaks_events, because several of its sources' own
+    "description" was literally their headline repeated verbatim, giving
+    both entity extraction and same_event()'s LLM comparison nothing to
+    work with beyond two bare, differently-worded headlines).
+    Deliberately loose (HTML-stripped, whitespace-collapsed, case-
+    insensitive containment) rather than exact-match — the point is
+    "this adds nothing new," and a wrapped/truncated repeat of the title
+    is just as informationless as an exact copy."""
+    if not description:
+        return True
+    clean_title = _TITLE_DUP_STRIP_RE.sub(" ", title).strip().lower()
+    clean_desc = _TITLE_DUP_STRIP_RE.sub(" ", description).strip().lower()
+    if not clean_title:
+        return False
+    return clean_title in clean_desc or clean_desc in clean_title
 
 
 async def run_cycle(
@@ -112,20 +142,20 @@ async def run_cycle(
     # deferred to the publish cycle for cost reasons (agents/extractor.py's
     # docstring). A failed/empty fetch just leaves the candidate as-is. ---
     backfilled = 0
-    empty_before = sum(1 for c in survivors if not c.description)
+    empty_before = sum(1 for c in survivors if _looks_like_title_duplicate(c.title, c.description))
     for c in survivors:
-        if c.description:
+        if not _looks_like_title_duplicate(c.title, c.description):
             continue
         try:
             og = await fetch_link_preview(c.url)
         except Exception:
             continue
         desc = og.get("prev_desc")
-        if desc:
+        if desc and not _looks_like_title_duplicate(c.title, desc):
             c.description = desc
             backfilled += 1
     if empty_before:
-        logger.info("run_cycle: backfilled og:description for %d/%d description-less candidate(s)", backfilled, empty_before)
+        logger.info("run_cycle: backfilled og:description for %d/%d description-less/title-duplicate candidate(s)", backfilled, empty_before)
 
     # 2026-08-20: this cycle's own batch, tokenized, as an in-memory IDF
     # corpus for core/event_identity.py's verify_compatibility() lexical
@@ -320,7 +350,12 @@ async def run_cycle(
             continue
 
         cluster_text = event_identity_text(members[0][0].title, members[0][0].description)
-        new_tokens = entity_tokens(cluster_text)
+        # 2026-09-07: entity_tokens_with_fallback(), not a plain
+        # entity_tokens(cluster_text) call — see that function's own
+        # docstring for the real cross-lingual miss this closes (a sparse
+        # first-sentence extraction naming nothing specific, widened to
+        # the full description only when it's this sparse).
+        new_tokens = entity_tokens_with_fallback(members[0][0].title, members[0][0].description)
         event_candidates = await event_store.peek_top_k(members[0][1], config.entity_verifier.top_k)
 
         # Entity-identity second opinion (2026-08-09, core/event_identity.py)
@@ -555,7 +590,7 @@ async def run_cycle(
         extra_points = [
             (
                 emb, c.source_name, int(c.published_at.timestamp()),
-                event_identity_text(c.title, c.description), entity_tokens(event_identity_text(c.title, c.description)), c.url,
+                event_identity_text(c.title, c.description), entity_tokens_with_fallback(c.title, c.description), c.url,
             )
             for c, emb in survivors_in_cluster[1:]
         ]
@@ -589,7 +624,7 @@ async def run_cycle(
             cluster["sources"],
             cluster["earliest_source"],
             cluster["earliest_unix"],
-            representative=(rep_embedding, rep_c.source_name, int(rep_c.published_at.timestamp()), rep_text, entity_tokens(rep_text), rep_c.url),
+            representative=(rep_embedding, rep_c.source_name, int(rep_c.published_at.timestamp()), rep_text, entity_tokens_with_fallback(rep_c.title, rep_c.description), rep_c.url),
             extra_points=extra_points,
             related_links=cluster_related_links[cluster_idx],
             seed_frame=seed_frame,

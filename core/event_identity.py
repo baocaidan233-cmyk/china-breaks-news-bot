@@ -947,6 +947,35 @@ def entity_tokens(text: str) -> set[str]:
     return tokens
 
 
+def entity_tokens_with_fallback(title: str, description: str) -> set[str]:
+    """entity_tokens() on event_identity_text()'s narrow title+first-
+    sentence text, falling back to the WIDER title+full-description when
+    that narrow result is too sparse (0-1 tokens) to be a useful identity
+    fingerprint — 2026-09-07, real miss found via a chinabreaks_events
+    audit: a telegraph.co.uk article's own lead sentence never named
+    "Jilin Chemical Fiber Group" (mentioned only later in the body), while
+    a Ukrainian ukrinform.ua article covering the SAME real event named it
+    in its own first sentence — the resulting seed_entities never
+    overlapped at all ({'russia','china'} vs
+    {'jilin','chemical','fiber','group'}), so two real accounts of one
+    event could never be recognized as the same one by entity overlap.
+
+    Only widens when the narrow extraction is this sparse — an ordinary
+    article's first sentence already yields several tokens and never
+    reaches the fallback, so this doesn't reintroduce the over-extraction
+    problem event_identity_text()'s own narrowing exists to prevent (a
+    multi-topic digest fanning out into dozens of tangential entities —
+    see that function's docstring). Callers that need the narrow text
+    itself (for LLM comparison, no_conflicting_specifics(),
+    has_date_conflict()) should keep using event_identity_text() directly —
+    this is only for the entity-token extraction step."""
+    narrow_tokens = entity_tokens(event_identity_text(title, description))
+    if len(narrow_tokens) > 1:
+        return narrow_tokens
+    wide_tokens = entity_tokens(f"{title}\n{description}"[:2000])
+    return wide_tokens if len(wide_tokens) > len(narrow_tokens) else narrow_tokens
+
+
 # Deliberately small and non-exhaustive (2026-08-10 design note: event_type
 # is a coarse retrieval aid, not an identity-determining field — see
 # 新闻事件库研究 2026.md §3.1's own "don't chase an exhaustive ontology"
