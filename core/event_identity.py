@@ -186,6 +186,23 @@ def _joint_mention_lookup() -> dict[str, tuple[str, ...]]:
     return lookup
 
 
+def _gpe_short_form_lookup() -> dict[str, tuple[str, ...]]:
+    """place_name (lowercased) -> every English alias's word tokens,
+    flattened — see gazetteer_multilingual.json's "gpe_places" docstring
+    (2026-09-07). Same mechanism as _person_short_form_lookup(), reused for
+    GPE instead of PERSON: en_core_web_sm has never seen Chinese script, so
+    without this, a Chinese place name is never recognized as GPE at all,
+    regardless of jieba segmentation — jieba only gives word BOUNDARIES,
+    the label itself still has to come from somewhere, and the gazetteer
+    entity_ruler pattern below is that somewhere."""
+    with open(_MULTILINGUAL_GAZETTEER_PATH, encoding="utf-8") as f:
+        multilingual = json.load(f)
+    lookup: dict[str, tuple[str, ...]] = {}
+    for full_name, aliases in multilingual.get("gpe_places", {}).get("pairs", []):
+        lookup[full_name.lower()] = tuple(_TOKEN_RE.findall(aliases.lower()))
+    return lookup
+
+
 def _gazetteer_patterns() -> list[dict]:
     with open(_GAZETTEER_PATH, encoding="utf-8") as f:
         data = json.load(f)
@@ -213,6 +230,15 @@ def _gazetteer_patterns() -> list[dict]:
     # chance to fire on it, same as any single-person gazetteer entry.
     for compound, _short_forms in multilingual.get("joint_mentions", {}).get("pairs", []):
         patterns.append({"label": "PERSON", "pattern": compound})
+    # Chinese place names (2026-09-07) — see gazetteer_multilingual.json's
+    # "gpe_places" docstring. Tagged GPE so entity_tokens()'s GPE branch
+    # (_GPE_SHORT_FORMS) resolves them to their English alias tokens,
+    # instead of falling through unrecognized the way every Chinese place
+    # name did before this — en_core_web_sm's statistical NER has no way to
+    # tag Chinese script as GPE on its own, jieba segmentation alone can't
+    # fix that (it only gives word boundaries, not a label).
+    for full_name, _aliases in multilingual.get("gpe_places", {}).get("pairs", []):
+        patterns.append({"label": "GPE", "pattern": full_name})
     # state_media — organizations, not people. Tagged ORG (not PERSON) so
     # entity_tokens()'s PERSON-only "keep last word" truncation never
     # applies to these — that truncation would otherwise mangle an org
@@ -255,6 +281,8 @@ def _register_cjk_gazetteer_words() -> None:
             jieba.add_word(full_name)
     for compound, _short_forms in multilingual.get("joint_mentions", {}).get("pairs", []):
         jieba.add_word(compound)
+    for full_name, _aliases in multilingual.get("gpe_places", {}).get("pairs", []):
+        jieba.add_word(full_name)
 
 
 _register_cjk_gazetteer_words()
@@ -297,6 +325,7 @@ _TRAILING_POSSESSIVE_RE = re.compile(r"’s$|'s$")
 _PERSON_SHORT_FORMS = _person_short_form_lookup()
 _PERSON_STEM_SHORT_FORMS = _person_stem_short_forms()
 _JOINT_MENTION_LOOKUP = _joint_mention_lookup()
+_GPE_SHORT_FORMS = _gpe_short_form_lookup()
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
@@ -703,6 +732,17 @@ def entity_tokens(text: str) -> set[str]:
                 words = list(known_short)
             elif len(words) > 1:
                 words = words[-1:]
+        elif ent.label_ in ("GPE", "LOC"):
+            # 2026-09-07: same problem as PERSON above, different cause —
+            # en_core_web_sm has never seen Chinese script, so it can never
+            # tag a Chinese place name GPE/LOC on its own no matter how
+            # cleanly jieba segments it; the gazetteer entity_ruler pattern
+            # is what supplies the label, and this lookup is what supplies
+            # the matching English tokens. See gazetteer_multilingual.json's
+            # "gpe_places" docstring for the real misses this closes.
+            known_aliases = _GPE_SHORT_FORMS.get(cleaned.lower())
+            if known_aliases:
+                words = list(known_aliases)
         for tok in words:
             if tok not in _STOPWORDS and len(tok) > 1:
                 tokens.add(tok)
