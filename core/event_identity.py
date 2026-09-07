@@ -1351,8 +1351,31 @@ class EventVerifier:
         self._subtype_prompt = Path(config.entity_verifier.update_subtype_prompt_file).read_text(encoding="utf-8")
         self._related_event_prompt = Path(config.entity_verifier.related_event_prompt_file).read_text(encoding="utf-8")
 
-    async def _ask(self, prompt: str, max_tokens: int) -> str:
-        kwargs = dict(model=self._model, messages=[{"role": "user", "content": prompt}])
+    async def _ask(self, system_content: str, user_content: str, max_tokens: int) -> str:
+        """2026-09-07: split into a `system` message (the static prompt
+        file content — role, rules, worked examples, output format; always
+        byte-identical for a given call site) and a `user` message (only
+        the dynamic TEXT A/TEXT B content) — was a single "user"-role
+        message with the static instructions and the two dynamic texts all
+        concatenated via str.format() into one string, with the dynamic
+        text appearing NEAR THE START and the bulk of the static content
+        (rules, worked examples) coming AFTER it. OpenAI's automatic prompt
+        caching only discounts a request's CUMULATIVE PREFIX up to the
+        first point of divergence from a previous call — with the dynamic
+        text that early, essentially none of the (large, always-identical)
+        static content that followed it could ever be cache-eligible,
+        unlike agents/scorer.py and agents/writer.py's own system+user
+        split, which already gets this for free. Reused the user's own
+        cost-audit request (2026-09-07, prompted by the ported AM1ST cache-
+        usage logging in core/openai_client.py) to fix this at the source
+        instead of just measuring it. See prompts/same_event_prompt.txt
+        etc.'s own docstrings — they no longer contain {a}/{b}
+        placeholders; TEXT A/TEXT B are built fresh per call in the user
+        message here instead."""
+        kwargs = dict(model=self._model, messages=[
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ])
         if self._model.startswith("gpt-5"):
             kwargs["max_completion_tokens"] = max_tokens
             kwargs["reasoning_effort"] = "minimal"
@@ -1370,12 +1393,12 @@ class EventVerifier:
         return ""
 
     async def same_event(self, text_a: str, text_b: str) -> tuple[bool, str]:
-        raw = await self._ask(self._same_event_prompt.format(a=text_a, b=text_b), max_tokens=80)
+        raw = await self._ask(self._same_event_prompt, f"TEXT A:\n{text_a}\n\nTEXT B:\n{text_b}", max_tokens=80)
         verdict = self._extract_field(raw, "VERDICT").upper()
         return verdict.startswith("SAME"), raw
 
     async def classify_subtype(self, text_a: str, text_b: str) -> tuple[str, str]:
-        raw = await self._ask(self._subtype_prompt.format(a=text_a, b=text_b), max_tokens=60)
+        raw = await self._ask(self._subtype_prompt, f"TEXT A:\n{text_a}\n\nTEXT B:\n{text_b}", max_tokens=60)
         subtype = self._extract_field(raw, "SUBTYPE").upper()
         return subtype, raw
 
@@ -1385,7 +1408,7 @@ class EventVerifier:
         linking pass); asks whether B is a genuine follow-up/consequence of
         A's storyline, not whether they're the same occurrence. See
         prompts/related_event_prompt.txt."""
-        raw = await self._ask(self._related_event_prompt.format(a=text_a, b=text_b), max_tokens=80)
+        raw = await self._ask(self._related_event_prompt, f"EVENT A:\n{text_a}\n\nEVENT B:\n{text_b}", max_tokens=80)
         verdict = self._extract_field(raw, "RELATED").upper()
         return verdict.startswith("YES"), raw
 
