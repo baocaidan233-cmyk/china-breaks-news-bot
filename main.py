@@ -82,7 +82,7 @@ from core.redis_store import RedisStore
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
 
-_TITLE_DUP_STRIP_RE = re.compile(r"<[^>]+>|\s+")
+_TITLE_DUP_STRIP_RE = re.compile(r"<[^>]+>|[^\w]+", re.UNICODE)
 
 
 def _looks_like_title_duplicate(title: str, description: str) -> bool:
@@ -99,10 +99,15 @@ def _looks_like_title_duplicate(title: str, description: str) -> bool:
     "description" was literally their headline repeated verbatim, giving
     both entity extraction and same_event()'s LLM comparison nothing to
     work with beyond two bare, differently-worded headlines).
-    Deliberately loose (HTML-stripped, whitespace-collapsed, case-
-    insensitive containment) rather than exact-match — the point is
-    "this adds nothing new," and a wrapped/truncated repeat of the title
-    is just as informationless as an exact copy."""
+    Deliberately loose (HTML-stripped, all punctuation/whitespace
+    collapsed to a single separator, case-insensitive containment) rather
+    than exact-match — found via testing that a real pair differing only
+    by a trailing "- Source Name" dash-attribution (title has it,
+    description doesn't) otherwise fails a naive substring check even
+    though the description is obviously just the title again. The point
+    is "this adds nothing new," and a wrapped/truncated/differently-
+    punctuated repeat of the title is just as informationless as an exact
+    copy."""
     if not description:
         return True
     clean_title = _TITLE_DUP_STRIP_RE.sub(" ", title).strip().lower()

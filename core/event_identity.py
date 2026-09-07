@@ -950,7 +950,7 @@ def entity_tokens(text: str) -> set[str]:
 def entity_tokens_with_fallback(title: str, description: str) -> set[str]:
     """entity_tokens() on event_identity_text()'s narrow title+first-
     sentence text, falling back to the WIDER title+full-description when
-    that narrow result is too sparse (0-1 tokens) to be a useful identity
+    that narrow result is too sparse (<=2 tokens) to be a useful identity
     fingerprint — 2026-09-07, real miss found via a chinabreaks_events
     audit: a telegraph.co.uk article's own lead sentence never named
     "Jilin Chemical Fiber Group" (mentioned only later in the body), while
@@ -959,6 +959,11 @@ def entity_tokens_with_fallback(title: str, description: str) -> set[str]:
     overlapped at all ({'russia','china'} vs
     {'jilin','chemical','fiber','group'}), so two real accounts of one
     event could never be recognized as the same one by entity overlap.
+    Note the real miss's own narrow extraction was 2 tokens, not 0-1 — an
+    earlier version of this function used a `> 1` cutoff (widen only below
+    2), which would NOT have actually triggered on this exact case; testing
+    against the real motivating example is what caught that and moved the
+    cutoff to `> 2`.
 
     Only widens when the narrow extraction is this sparse — an ordinary
     article's first sentence already yields several tokens and never
@@ -970,7 +975,7 @@ def entity_tokens_with_fallback(title: str, description: str) -> set[str]:
     has_date_conflict()) should keep using event_identity_text() directly —
     this is only for the entity-token extraction step."""
     narrow_tokens = entity_tokens(event_identity_text(title, description))
-    if len(narrow_tokens) > 1:
+    if len(narrow_tokens) > 2:
         return narrow_tokens
     wide_tokens = entity_tokens(f"{title}\n{description}"[:2000])
     return wide_tokens if len(wide_tokens) > len(narrow_tokens) else narrow_tokens
