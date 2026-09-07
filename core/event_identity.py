@@ -350,7 +350,7 @@ def _build_china_signal_keywords() -> frozenset[str]:
         # covered languages — found missing via a real test case (a
         # Russian lenta.ru headline naming only "Китая," no gazetteer
         # PERSON, no English word) that should have signaled but didn't.
-        "китай", "китайск", "кнр",  # Russian: China, Chinese (stem), PRC
+        "кита", "кнр",  # Russian: stem covering Китай/Китая/Китае/Китаю/китайский/etc. (case endings change the last letter — same reason this module's inflected_stems are prefix-matched, not exact), PRC
         "chiny", "chińsk",  # Polish: China, Chinese (stem)
         "chine", "chinois",  # French: China, Chinese
         "chinesisch",  # German: Chinese (German "China" itself already matches the English keyword above, same spelling)
