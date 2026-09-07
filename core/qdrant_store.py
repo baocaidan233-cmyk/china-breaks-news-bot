@@ -92,6 +92,25 @@ class QdrantStore:
         )
 
     async def ensure_collection(self) -> None:
+        """2026-09-07: added the missing create_payload_index call below —
+        found via a real production audit that most_similar_recent()'s own
+        Range filter on "publishedAt" had been failing with Qdrant's
+        "Index required but not found" 400 error on EVERY single call
+        since at least 2026-09-06, silently caught by that method's own
+        fail-open except-block ("query failed, treating as no match") and
+        logged at ERROR level the whole time, unnoticed until this audit
+        actually went looking. Net effect: cross-cycle semantic dedup has
+        been fully inert this entire time — every candidate always got
+        cosine_score=0.0, which is_cross_cycle_duplicate() correctly reads
+        as "not a duplicate" (0.0 is always < related_threshold), so
+        nothing was ever caught at this layer, no matter how similar to
+        recent content. This is the EXACT same bug EventStore.
+        ensure_collection() below already hit and fixed once (2026-08-06,
+        see that method's own docstring) — the fix was never ported to
+        this sibling class/collection. create_payload_index is a no-op if
+        the index already exists, so this always runs (not just on first
+        creation) to backfill the index onto the pre-existing, already-
+        broken collection, same reasoning as EventStore's own fix."""
         if self._client is None:
             return
         existing = await self._client.get_collections()
@@ -101,6 +120,9 @@ class QdrantStore:
                 vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
             )
             logger.info("QdrantStore: created collection %s", self._collection)
+        await self._client.create_payload_index(
+            collection_name=self._collection, field_name="publishedAt", field_schema=PayloadSchemaType.INTEGER,
+        )
 
     async def most_similar_recent(self, embedding: list[float]) -> tuple[float, str]:
         """Highest cosine similarity against title+description embeddings
@@ -722,6 +744,17 @@ class PostedHistoryStore:
         )
 
     async def ensure_collection(self) -> None:
+        """2026-09-07: added the missing create_payload_index call — same
+        bug as QdrantStore.ensure_collection() above (see that method's
+        docstring for the full story): this class's own most_similar_recent()
+        Range-filters on "publishedAt" without this collection ever having
+        had a payload index for it, so every call has been failing with
+        Qdrant's "Index required but not found" 400 error and silently
+        returning "no match" (confirmed: 39 occurrences in
+        logs/main_publish.log) since at least 2026-09-06. Net effect: the
+        publish cycle's own "did we already post something this similar
+        recently" check (agents/posted_dedup_checker.py) has been inert
+        this whole time."""
         if self._client is None:
             return
         existing = await self._client.get_collections()
@@ -731,6 +764,9 @@ class PostedHistoryStore:
                 vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
             )
             logger.info("PostedHistoryStore: created collection %s", self._collection)
+        await self._client.create_payload_index(
+            collection_name=self._collection, field_name="publishedAt", field_schema=PayloadSchemaType.INTEGER,
+        )
 
     async def most_similar_recent(self, embedding: list[float]) -> tuple[float, str, str]:
         """Highest cosine similarity against post_content embeddings whose
