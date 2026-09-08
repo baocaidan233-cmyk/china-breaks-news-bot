@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -14,10 +15,38 @@ from core.openai_client import create_openai_client
 logger = logging.getLogger(__name__)
 
 
+# 2026-09-08: real, literal phrases pulled from actual llm_comment text
+# where the model admitted no real China/CCP connection existed, yet still
+# returned llm_score>=5 (and, in one case, nexus_gate="PASS") anyway — see
+# Scorer._enforce_gate()'s own docstring. Deliberately just a substring
+# scan, not an exhaustive taxonomy: the point is to catch the model's OWN
+# admission in its own words, not to guess every way it might phrase one.
+_SELF_CONTRADICTION_PHRASES = (
+    "does not have a direct connection",
+    "lacks a direct connection",
+    "lacks a concrete link",
+    "lacks a concrete connection",
+    "no direct connection to the ccp",
+    "no direct connection to china",
+)
+
+
 class ScoreOutput(BaseModel):
     llm_score: float
     llm_comment: str
-    nexus_gate: str = ""
+    # 2026-09-08: no default — a real audit found a candidate (a Hong Kong
+    # listing story) where llm_comment itself said "lacks a direct
+    # connection to the CCP" but llm_score was still 5, and the code-level
+    # _enforce_gate() override below DIDN'T catch it. With a default of ""
+    # here, a model response that simply omits nexus_gate (rather than
+    # explicitly writing FAIL) silently defaults to "" — which
+    # _enforce_gate()'s startswith("FAIL") check treats as "not FAIL," so
+    # the override never fires. Making this a required Literal instead
+    # means an omitted/malformed field is a real ValidationError, which
+    # routes into Scorer.score()'s EXISTING retry path (which explicitly
+    # re-prompts for the missing field) instead of silently bypassing
+    # enforcement.
+    nexus_gate: Literal["PASS", "FAIL"]
 
 
 class Scorer:
@@ -145,11 +174,28 @@ class Scorer:
         below 5 regardless of what number it returned, rather than trusting
         the model to keep its own stated reasoning and its own number in
         sync. A FAIL that already scored below 5 is left untouched (no
-        override needed); this only fires when the two disagree."""
-        if result.nexus_gate.strip().upper().startswith("FAIL") and result.llm_score >= 5:
+        override needed); this only fires when the two disagree.
+
+        Second layer, added the same day the nexus_gate field itself was:
+        a spot-check right after deploying nexus_gate found a NEW case
+        (a Hong Kong stock-listing story) where llm_comment again said
+        "lacks a direct connection to the CCP" but the model wrote
+        nexus_gate="PASS" anyway — the explicit field closes the
+        omission case, not the case where the model fills in a field that
+        still contradicts its own comment. _SELF_CONTRADICTION_PHRASES is
+        the same kind of admission-phrase scan already used elsewhere in
+        this codebase (see scoring_prompt.txt's own banned corroboration-
+        language rule) — if llm_comment itself contains one of these, that
+        overrides a PASS the same way an explicit FAIL does. Not a
+        complete solution (a model could still phrase the same admission
+        differently), but closes the exact real recurrence found so far."""
+        is_fail = result.nexus_gate.strip().upper().startswith("FAIL")
+        comment_lower = result.llm_comment.lower()
+        admits_no_connection = any(phrase in comment_lower for phrase in _SELF_CONTRADICTION_PHRASES)
+        if (is_fail or admits_no_connection) and result.llm_score >= 5:
             logger.warning(
-                "Scorer: %s — nexus_gate=FAIL but llm_score=%.1f, overriding to 3.0 (model comment: %r)",
-                url, result.llm_score, result.llm_comment,
+                "Scorer: %s — nexus_gate=%s, comment admits no connection=%s, but llm_score=%.1f, overriding to 3.0 (model comment: %r)",
+                url, result.nexus_gate, admits_no_connection, result.llm_score, result.llm_comment,
             )
             return result.model_copy(update={"llm_score": 3.0})
         return result
