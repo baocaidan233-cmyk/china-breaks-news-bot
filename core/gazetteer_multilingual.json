@@ -48,7 +48,13 @@
   "notable_variants": [
     ["普京", "Putin"],
     ["拉夫罗夫", "Lavrov"],
-    ["米舒斯京", "Mishustin"]
+    ["米舒斯京", "Mishustin"],
+    ["王岐山", "Wang Qishan"],
+    ["马云", "Jack Ma"], ["馬雲", "Jack Ma"],
+    ["张一鸣", "Zhang Yiming"], ["張一鳴", "Zhang Yiming"],
+    ["赵长鹏", "Changpeng Zhao"], ["趙長鵬", "Changpeng Zhao"],
+    ["孟晚舟", "Meng Wanzhou"],
+    ["李嘉诚", "Li Ka-shing"], ["李嘉誠", "Li Ka-shing"]
   ],
   "us_officials_variants": [
     ["特朗普", "Trump"], ["川普", "Trump"],

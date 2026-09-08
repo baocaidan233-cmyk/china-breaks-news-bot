@@ -377,6 +377,22 @@ def _build_china_signal_keywords() -> frozenset[str]:
         "hkmao", "hong kong and macau affairs office",
         "tao", "taiwan affairs office",
         "csrc", "china securities regulatory commission",
+        # 2026-09-08: flagship Chinese company/product brand names — found
+        # missing via a real production miss (a Huawei HarmonyOS/Kirin
+        # product-launch story, prefilter-rejected because its 167-char
+        # title+description contained "Huawei" and nothing else the
+        # keyword list covered). User-requested batch. "tiktok" is
+        # deliberately included despite most real TikTok mentions being
+        # generic-app noise unrelated to China (confirmed via a same-day
+        # audit of 1548 real prefilter_reject records — 6 of 7 secondary-
+        # keyword hits were exactly this) — explicit user call to accept
+        # that extra Scorer-call cost rather than miss TikTok/ByteDance
+        # ownership-and-CCP-data-access stories.
+        "huawei", "xiaomi", "小米",
+        "alibaba", "阿里巴巴",
+        "tencent", "腾讯", "騰訊",
+        "tiktok", "bytedance", "字节跳动", "字節跳動",
+        "deepseek",
         # 2026-09-07: Chinese-language names for the same institutions —
         # confirmed via real test that "解放军在东海举行实弹演习" only passed
         # coincidentally (via "东海"/East China Sea already being a

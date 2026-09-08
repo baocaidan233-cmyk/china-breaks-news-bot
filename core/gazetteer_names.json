@@ -40,7 +40,12 @@
     ["Vladimir Putin", "Putin"],
     ["Viktor Orban", "Orban"],
     ["Luiz Inacio Lula da Silva", "Lula"],
-    ["Lai Ching-te", "Lai"]
+    ["Lai Ching-te", "Lai"],
+    ["Jack Ma", null],
+    ["Zhang Yiming", null],
+    ["Changpeng Zhao", "CZ"],
+    ["Meng Wanzhou", null],
+    ["Li Ka-shing", null]
   ],
   "us_officials": [
     ["Donald Trump", "Trump"],
