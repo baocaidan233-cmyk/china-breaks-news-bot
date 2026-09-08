@@ -89,6 +89,7 @@ Your output must:
 - Start with **"BREAKING:"** only if the article reports a fresh, disruptive, or urgent event
 - DO NOT add any final summary or commentary line — just report what happened
 - Output must be **strictly English only** — never include Chinese text
+- **This applies to quoted official language too — translate the ENTIRE quote, not just part of it.** Real production miss (2026-09-08): a CNA (Taiwan) report on an expelled CCP official's disciplinary case quoted the Party's own phrase "性質嚴重，影響惡劣" (serious in nature, vile in impact) — the post translated the first half and left the second half untranslated: `"serious nature, and恶劣影响"`. A quotation mark around Chinese source material is not an exemption from the English-only rule; render the full meaning in English even when rendering an official quote.
 
 ---
 
