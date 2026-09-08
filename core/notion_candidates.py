@@ -137,6 +137,7 @@ async def query_eligible_candidates(config: AppConfig) -> list[PublishCandidate]
             "and": [
                 {"property": props.send_status, "checkbox": {"does_not_equal": True}},
                 {"property": props.extraction_failed, "checkbox": {"does_not_equal": True}},
+                {"property": props.writer_rejected, "checkbox": {"does_not_equal": True}},
                 {"property": props.channel_name, "select": {"equals": notion.channel_name}},
                 {"timestamp": "created_time", "created_time": {"after": cutoff}},
                 {"property": props.llm_score, "number": {"greater_than_or_equal_to": config.publish.candidate_min_score}},
@@ -226,6 +227,7 @@ async def has_unpublished_hot_candidate(config: AppConfig) -> bool:
             "and": [
                 {"property": props.send_status, "checkbox": {"does_not_equal": True}},
                 {"property": props.extraction_failed, "checkbox": {"does_not_equal": True}},
+                {"property": props.writer_rejected, "checkbox": {"does_not_equal": True}},
                 {"property": props.channel_name, "select": {"equals": notion.channel_name}},
                 {"property": props.is_hot, "checkbox": {"equals": True}},
                 {"timestamp": "created_time", "created_time": {"after": cutoff}},
@@ -357,4 +359,41 @@ async def mark_extraction_failed(config: AppConfig, page_id: str) -> bool:
         return True
     except Exception:
         logger.exception("mark_extraction_failed: Notion update failed for page %s", page_id)
+        return False
+
+
+async def mark_writer_rejected(config: AppConfig, page_id: str) -> bool:
+    """Flips writer_rejected to true — called by main_publish.py's
+    run_cycle() the moment Writer.is_no_comment() is true for a candidate.
+    Same one-way permanent-exclusion pattern as mark_extraction_failed()
+    above, for a distinct real recurring waste found 2026-09-08: a
+    candidate that scored high enough at ingestion time (title+description
+    only) but that Writer, working from the full extracted article,
+    judges has no real China/CCP connection stayed eligible and got
+    re-selected, re-extracted, and re-written every publish cycle it
+    aged into — a real Bloomberg Pakistan-missile-system story was
+    scored/extracted/written 17 separate times over ~10 hours before
+    finally aging out of the eligibility window on its own.
+    query_eligible_candidates() and has_unpublished_hot_candidate() both
+    exclude writer_rejected=true, mirroring extraction_failed."""
+    notion = config.notion
+    if not notion.candidate_key:
+        logger.warning("mark_writer_rejected: NOTION_CANDIDATE_API_KEY not set — skipping")
+        return False
+
+    props = notion.candidate_props
+    headers = {
+        "Authorization": f"Bearer {notion.candidate_key}",
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+    }
+    body = {"properties": {props.writer_rejected: {"checkbox": True}}}
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.patch(f"https://api.notion.com/v1/pages/{page_id}", headers=headers, json=body)
+            resp.raise_for_status()
+        return True
+    except Exception:
+        logger.exception("mark_writer_rejected: Notion update failed for page %s", page_id)
         return False

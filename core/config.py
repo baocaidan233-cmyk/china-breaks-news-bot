@@ -84,6 +84,7 @@ class NotionCandidateProps(BaseModel):
     event_first_seen_at: str = "event_first_seen_at"  # date — NOT in the confirmed real schema, see class docstring
     is_hot: str = "is_hot"  # checkbox — NOT in the confirmed real schema, see class docstring; set from the manual hot-topic flag match, see HotTopicsConfig
     extraction_failed: str = "extraction_failed"  # checkbox — ported from AM1ST (added 2026-09-05 there): set once by main_publish.py the first time full-text extraction fails for this candidate; a permanent exclusion, not a retry-later flag. NOT in the confirmed real schema — needs adding to the real Notion database before use, same as heat_score/event_first_seen_at/is_hot above
+    writer_rejected: str = "writer_rejected"  # checkbox — added 2026-09-08, same permanent-exclusion pattern as extraction_failed above but for a different real recurring waste: a candidate the Writer judges "No comment" (no real China/CCP connection once the full article is read) stayed eligible and got re-selected, re-extracted, and re-written every publish cycle until it aged out on its own — one real case (a Bloomberg Pakistan-missile-system story) was scored/extracted/written 17 separate times over ~10 hours. Added to the live Notion database via the API the same day this field was introduced.
 
 
 class NotionHotTopicProps(BaseModel):

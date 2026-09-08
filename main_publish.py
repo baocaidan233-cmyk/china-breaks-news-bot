@@ -98,7 +98,7 @@ from agents.writer import Writer
 from core.alerts import AlertNotifier
 from core.config import load_config
 from core.event_identity import EventVerifier
-from core.notion_candidates import count_recent_high_score, has_unpublished_hot_candidate, mark_extraction_failed, mark_send_status, query_eligible_candidates
+from core.notion_candidates import count_recent_high_score, has_unpublished_hot_candidate, mark_extraction_failed, mark_send_status, mark_writer_rejected, query_eligible_candidates
 from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
 
@@ -248,6 +248,15 @@ async def run_cycle(
             post_content = await writer.write(c.title, c.content, context=background, is_opinion=is_opinion)
             if Writer.is_no_comment(post_content):
                 logger.info("run_cycle: %s — writer returned No comment, dropped from batch", c.url)
+                # 2026-09-08: permanent exclusion, same reasoning as
+                # mark_extraction_failed() above — without this, a
+                # candidate the Writer has already judged has no real
+                # China/CCP connection stays eligible and gets
+                # re-selected, re-extracted, and re-written every future
+                # cycle until it ages out on its own (a real Bloomberg
+                # Pakistan-missile-system story hit this 17 times over
+                # ~10 hours before finally aging out).
+                await mark_writer_rejected(config, c.page_id)
                 continue
             # Link appended after generation, not counted against the writer's
             # word cap — the AI's own output stays pure caption text.
