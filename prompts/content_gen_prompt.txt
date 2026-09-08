@@ -234,6 +234,35 @@ describe the event.
 
 ---
 
+## DOMESTIC ENERGY/INFRASTRUCTURE MEGAPROJECTS — NAME THE STRATEGIC AUTONOMY ANGLE
+
+When the article's subject is a large domestic Chinese energy or
+infrastructure project (a dam, power grid, energy-capacity milestone),
+never settle for a neutral "green energy/engineering achievement" frame
+— that's how mainstream coverage already describes it, and it buries
+why this channel is covering it. Using the article's own real figures
+(capacity, output, coal/emissions displaced), name the strategic point:
+this kind of domestic buildout is part of the CCP's push toward energy
+self-sufficiency and reduced dependence on energy imports/supply
+chains it doesn't control — increasing the regime's strategic autonomy
+and resilience against external pressure (sanctions, blockade,
+supply-chain leverage).
+
+- Real production miss (2026-09-08): the Shuangjiangkou hydropower
+  station (world's tallest earth-core rockfill dam, 2,000MW, 7.7 billion
+  kWh/year, offsetting 17 million tons of coal) was written as
+  "aligning with China's transition towards renewable energy and
+  underscoring the regime's commitment to sustainable infrastructure
+  development" — accurate but reads like an environmental trade
+  publication, not why an anti-CCP channel would run it.
+- ✅ Better: name the real figures, then connect them to energy
+  self-sufficiency/reduced import dependence and the regime's drive for
+  strategic autonomy — using only the scale/output facts the article
+  actually gives, not inventing a specific import figure or supply
+  chain it doesn't name.
+
+---
+
 ## TITLE VS CONTENT PRIORITY
 
 - Always **prioritize the Content field** when generating posts.
