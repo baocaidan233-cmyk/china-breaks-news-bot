@@ -79,6 +79,14 @@ _PAYWALL_TEASER_SIGNALS = (
     "subscribe to unlock this article",
     "try unlimited access",
     "complete digital access to quality",
+    # 2026-09-08: Digitimes' own teaser phrase — real production waste
+    # found via a token-cost audit: two Digitimes articles (LEO-satellite
+    # military-data, Horizon Robotics/Black Sesame) both extracted as ~700
+    # real chars of genuine lede + this exact phrase + login-form
+    # boilerplate, clearing min_text_length easily, so they sailed past
+    # this check and paid a full Writer LLM call before it recognized
+    # there was no real article and returned "No comment."
+    "the article requires paid subscription",
 )
 
 
