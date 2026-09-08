@@ -68,13 +68,22 @@ class QdrantStore:
     v3.4_chinabreaks_notion_to_gettr.json exports) — kept the same field
     names AM1ST already used for the equivalent collection, deliberately,
     so this class's own query/write code needed no field-name changes when
-    ported. Unlike AM1ST's own am1st_embeddings collection (which turned
-    out to already hold ~2900 real historical points under this schema
-    from the pre-existing n8n system, once a field-name mismatch bug was
-    fixed), this bot's own chinabreaks_embeddings collection starts empty —
-    it is a NEW collection, not a continuation of anything the old n8n
-    system wrote to Qdrant. publishedAt is the article's own original
-    publish time in Unix seconds, not when this row was written.
+    ported.
+
+    2026-09-08 correction: this docstring originally said this bot's own
+    collection "starts empty, not a continuation of anything the old n8n
+    system wrote" — unlike AM1ST's am1st_embeddings, which turned out to
+    already hold ~2900 real historical points once a field-name mismatch
+    was fixed. That was wrong for the same underlying reason, just missed:
+    the old n8n system's real collection uses a DIFFERENT underscore
+    convention ("china_breaks_scrapped_embeddings", not "chinabreaks_..."),
+    so an earlier check for a literally-named "chinabreaks_embeddings"
+    correctly found nothing and wrongly concluded there was no old data at
+    all. config.qdrant.collection now points directly at that real old
+    collection (this port's own pre-launch test points were merged into it
+    first, not discarded) — same outcome as AM1ST's fix, just a rename
+    instead of a field-name change. publishedAt is the article's own
+    original publish time in Unix seconds, not when this row was written.
 
     Periodic delete-by-filter cleanup (retention_days) is intentionally NOT
     implemented here as something the main cycle calls — see standing dedup
@@ -729,10 +738,18 @@ class PostedHistoryStore:
     publishedAt) — AM1ST confirmed this shape against its own
     v1.4_am1st_notion_to_gettr_auto posting.json export; kept the same
     field names here since this class's own query/write code needed no
-    changes when ported. This bot's own chinabreaks_posting_news_embedding
-    collection starts empty, independent of whatever China Breaks' own
-    real n8n posting workflow may have written to its own vector store, if
-    any — this port has not read or migrated from that system's data."""
+    changes when ported.
+
+    2026-09-08 correction: this docstring originally said this bot's own
+    collection starts empty, independent of the old n8n posting workflow's
+    real data, "since this port has not read or migrated from that
+    system's data." That was based on the same missed-naming-convention
+    mistake as QdrantStore's own docstring above — the old system's real
+    posted-history collection is "china_break_news_posting_embedding"
+    (different underscore placement than "chinabreaks_..."), which really
+    does hold 472 real posted-content points. config.qdrant.posted_collection
+    now points directly at it (this port's own pre-launch test points
+    were merged in first, not discarded)."""
 
     def __init__(self, config: AppConfig) -> None:
         self._collection = config.qdrant.posted_collection

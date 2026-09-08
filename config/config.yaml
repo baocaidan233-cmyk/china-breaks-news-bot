@@ -50,12 +50,16 @@ notion:
     active: "In_Use"
 
 redis:
-  # NOT the real production prefix — real production (confirmed 2026-09-05
-  # from the live n8n system's own Redis credential) uses
-  # "newsroom:cnbreaks:url_hash:". This project deliberately uses a
-  # different namespace so this bot's own test-phase dedup state doesn't
-  # share history with the still-running production system; see README.
-  key_prefix: "newsroom:chinabreaks:url_hash:"
+  # 2026-09-08: switched to the REAL production prefix now that this port
+  # has gone live and the old n8n system has been shut down by the user —
+  # was "newsroom:chinabreaks:url_hash:" (a deliberately separate
+  # test-phase namespace, ~26.8k keys, to avoid colliding with the
+  # still-running old system). Confirmed real via a live SCAN: the old
+  # prefix below had 88,889 real keys accumulated by the old system,
+  # this port's own test keys are a separate, smaller set — switching
+  # inherits that real 10-day URL-hash history instead of abandoning it,
+  # so a URL the old system already saw won't get re-ingested as if new.
+  key_prefix: "newsroom:cnbreaks:url_hash:"
   ttl_seconds: 864000  # 10 days — standing dedup architecture default, unchanged from AM1ST
 
 openai:
@@ -122,9 +126,22 @@ heat:
   major_outlet_weight: 2.0    # vs 1.0 for any other corroborating source
 
 qdrant:
-  collection: "chinabreaks_embeddings"           # ingestion-side cross-cycle dedup cache (title+description)
-  posted_collection: "chinabreaks_posting_news_embedding"  # publish-side "already posted" cache (post_content)
-  events_collection: "chinabreaks_events"        # event aggregation — groups of points per underlying event, see HeatConfig/EventStore
+  # 2026-09-08: repointed to the OLD n8n system's real collections, found
+  # under a different underscore convention ("china_break(s)_..." vs this
+  # port's own "chinabreaks_..." — the mismatch is why an earlier docstring
+  # in core/qdrant_store.py wrongly concluded chinabreaks_embeddings
+  # "starts empty, not a continuation of anything the old system wrote").
+  # Confirmed same 1536-dim/cosine vectors (text-embedding-3-small,
+  # compatible, no re-embedding needed) and genuinely on-topic real
+  # content before switching. This port's own ~579/~87 real points
+  # (accumulated during today's pre-launch testing) were merged INTO
+  # these old collections first (not discarded) — see chat history for
+  # the one-off merge script; china_breaks_embeddings (833 pts, Hacker
+  # News/India-politics/Yahoo-Finance content) was checked and is NOT
+  # this channel's data, left untouched.
+  collection: "china_breaks_scrapped_embeddings"           # ingestion-side cross-cycle dedup cache (title+description) — was "chinabreaks_embeddings"
+  posted_collection: "china_break_news_posting_embedding"  # publish-side "already posted" cache (post_content) — was "chinabreaks_posting_news_embedding"
+  events_collection: "chinabreaks_events"        # event aggregation — a NEW concept this Python port introduced, the old n8n system never had an equivalent, so there is nothing old to repoint to here
   cross_cycle_window_hours: 72
   cleanup_retention_days: 10  # for the separate, not-yet-built daily cleanup job
   timeout_seconds: 15  # AsyncQdrantClient has no timeout by default — AM1ST hit a real stalled-request hang without this; ported as a preventive default

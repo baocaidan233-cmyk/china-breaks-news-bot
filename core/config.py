@@ -126,12 +126,16 @@ class NotionConfig(BaseModel):
 
 class RedisConfig(BaseModel):
     url: str = ""  # env: REDIS_URL (Upstash rediss:// connection string)
-    # Real production URL-hash dedup key prefix already in use by the live
-    # n8n system, confirmed 2026-09-04 — deliberately reused (not a fresh
-    # namespace) so this Python port recognizes URLs the still-running old
-    # system already claimed, the moment it starts running: this is a safe,
-    # idempotent membership check either way.
-    key_prefix: str = "newsroom:chinabreaks:url_hash:"
+    # 2026-09-08: this default previously claimed to already be "the real
+    # production prefix" — that was wrong; a live SCAN found the actual
+    # old n8n system's prefix is "newsroom:cnbreaks:url_hash:" (88,889 real
+    # keys), a different string from this one. This value was really a
+    # separate test-phase namespace (confirmed matching config.yaml's own,
+    # more accurate comment on this same field) with ~26.8k of this port's
+    # own keys. Now that the old system is confirmed shut down, config.yaml
+    # overrides this default to the real prefix so this port inherits that
+    # real history instead of starting a second, disconnected one.
+    key_prefix: str = "newsroom:cnbreaks:url_hash:"
     ttl_seconds: int = 864000  # 10 days — standing dedup architecture default, unchanged from AM1ST
 
 
@@ -373,8 +377,14 @@ class HeatConfig(BaseModel):
 class QdrantConfig(BaseModel):
     url: str = ""  # env: QDRANT_URL
     api_key: str = ""  # env: QDRANT_API_KEY
-    collection: str = "chinabreaks_embeddings"  # ingestion-side cross-cycle dedup cache (title+description)
-    posted_collection: str = "chinabreaks_posting_news_embedding"  # publish-side "already posted" cache (post_content) — separate collection, separate purpose, see core/qdrant_store.py's PostedHistoryStore
+    # 2026-09-08: repointed to the OLD n8n system's real collections ahead
+    # of production launch — see config/config.yaml's own comment on this
+    # same key for the full story (underscore-naming mismatch that made an
+    # earlier docstring wrongly conclude these start empty; this port's
+    # own pre-launch test points were merged into the old collections
+    # before switching, not discarded).
+    collection: str = "china_breaks_scrapped_embeddings"  # ingestion-side cross-cycle dedup cache (title+description) — was "chinabreaks_embeddings"
+    posted_collection: str = "china_break_news_posting_embedding"  # publish-side "already posted" cache (post_content) — was "chinabreaks_posting_news_embedding"
     events_collection: str = "chinabreaks_events"  # event aggregation collection, see HeatConfig/EventStore — a genuinely different kind of thing from the two collections above (a group of points per underlying event, not one point per article)
     cross_cycle_window_hours: int = 72
     cleanup_retention_days: int = 10
