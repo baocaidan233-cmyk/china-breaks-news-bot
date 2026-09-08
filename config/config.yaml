@@ -177,12 +177,19 @@ publish:
 # and why quiet_count/busy_count are unverified placeholders for this
 # project's own volume profile.
 dynamic_publish:
-  hot_score_floor: 8.0
+  # 2026-09-08: recalibrated ahead of production launch using a real 48h/
+  # 572-candidate Notion sample — see core/config.py's DynamicPublishConfig
+  # docstring for the full before/after numbers. hot_score_floor 8.0->7.0
+  # (floor=8.0 had never once crossed busy_count=8 in 91 real cycles —
+  # densest real 2h window only ever had 3; floor=7.0 gives a real
+  # quiet 25.5%/normal 42.6%/busy 31.9% split). busy_scale 0.6->0.5 so the
+  # busy tier actually reaches the 15min floor instead of stopping at ~18min.
+  hot_score_floor: 7.0
   lookback_hours: 2.0
   quiet_count: 1
   busy_count: 8
   quiet_scale: 1.3
-  busy_scale: 0.6
+  busy_scale: 0.5
   min_interval_seconds: 900
   max_interval_seconds: 2340
 

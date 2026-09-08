@@ -20,20 +20,19 @@ class NotionSourceProps(BaseModel):
     no real source row gets silently dropped just because it's flagged
     under only one of the two checkboxes.
 
-    Every OTHER field below (feed_url/name/cookie/domain) is carried over
-    unverified from AM1ST's own source-table column names as a best-guess
-    placeholder, NOT independently confirmed against this table's real
-    live schema — AM1ST itself once had to correct guessed property names
-    after a live schema read (see project_am1st_migration memory), so
-    treat these the same way: re-verify against a live schema read before
-    this bot's first real run."""
+    Every OTHER field below (feed_url/name/cookie/domain) was carried over
+    from AM1ST's own source-table column names as a best-guess placeholder
+    — CONFIRMED 2026-09-08 via a live GET on the real database
+    (22e16dc99f32808fb86ec094a71fe7af), ahead of production launch: RSS
+    (url), Name (title), cookie (rich_text), website (url) all exist
+    exactly as guessed. No corrections needed."""
 
     in_use_major: str = "in_use"
     in_use_minor: str = "In_use_2"
-    feed_url: str = "RSS"  # UNVERIFIED placeholder — carried over from AM1ST, re-check against a live schema read
-    name: str = "Name"  # UNVERIFIED placeholder — carried over from AM1ST, re-check against a live schema read
-    cookie: str = "cookie"  # UNVERIFIED placeholder — carried over from AM1ST, re-check against a live schema read
-    domain: str = "website"  # UNVERIFIED placeholder — carried over from AM1ST, re-check against a live schema read
+    feed_url: str = "RSS"
+    name: str = "Name"
+    cookie: str = "cookie"
+    domain: str = "website"
 
 
 class NotionCandidateProps(BaseModel):
@@ -457,6 +456,21 @@ class DynamicPublishConfig(BaseModel):
     chinabreaks candidate-volume data exists, the same way AM1ST's own
     numbers were derived.
 
+    2026-09-08: recalibrated hot_score_floor using a real 48h/572-candidate
+    Notion sample, ahead of production launch. At the inherited floor=8.0,
+    score>=8.0 candidates occurred only 9 times in 48h, and the densest
+    real 2h window ever contained just 3 — busy_count=8 had literally
+    never fired (91 real compute_dynamic_interval log lines: 87 quiet, 4
+    normal, 0 busy) despite the docstring's own "15-39min band regardless"
+    intent above. Lowered the floor to 7.0 (score>=7.0 occurred 133 times
+    in the same window, with real 2h-window clustering up to 17) and left
+    busy_count=8 unchanged — simulating this pair against the real 48h
+    timestamp data at 30-min ticks gives quiet 25.5%/normal 42.6%/busy
+    31.9%, i.e. all three tiers now actually fire on real volume instead
+    of the range collapsing to one tier. quiet_count=1 was left as-is —
+    real data shows it already produces a healthy normal/quiet split once
+    busy is reachable.
+
     quiet_scale/max_interval_seconds reflect AM1ST's OWN reverted final
     state (2026-09-06): an earlier, more aggressive version added a DEAD
     tier (count==0) that could stretch the wait to 4 hours — AM1ST's user
@@ -468,12 +482,12 @@ class DynamicPublishConfig(BaseModel):
     long. Ported the reverted-to-simple state directly, not the
     intermediate DEAD-tier version."""
 
-    hot_score_floor: float = 8.0
+    hot_score_floor: float = 7.0  # was 8.0 — see 2026-09-08 recalibration note above
     lookback_hours: float = 2.0
-    quiet_count: int = 1  # <= this many (but not zero) -> slow down — AM1ST's own real p25, unverified placeholder here
-    busy_count: int = 8  # >= this many -> speed up — AM1ST's own real p75, unverified placeholder here
+    quiet_count: int = 1  # <= this many (but not zero) -> slow down — confirmed against real chinabreaks 48h data 2026-09-08
+    busy_count: int = 8  # >= this many -> speed up — confirmed against real chinabreaks 48h data 2026-09-08 (unchanged; only the floor needed to move)
     quiet_scale: float = 1.3  # 30min base -> 39min
-    busy_scale: float = 0.6  # 30min base -> ~18min
+    busy_scale: float = 0.5  # was 0.6 (only reached ~18min) — 30min base -> 15min, actually hitting min_interval_seconds now
     min_interval_seconds: int = 900  # 15 min floor — never faster than this regardless of volume
     max_interval_seconds: int = 2340  # 39 min ceiling — an empty cycle publishes nothing instead of the interval stretching further, see docstring
 
