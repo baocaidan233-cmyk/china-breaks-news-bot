@@ -450,7 +450,24 @@ def _build_china_signal_keywords() -> frozenset[str]:
         "commission militaire centrale",  # French: CMC
         "nouvelle route de la soie",  # French: BRI (the common French term, not a literal translation of the English name)
     }
-    for full_name, short_form in _all_person_pairs(data, multilingual):
+    # 2026-09-14 cost fix: deliberately NOT _all_person_pairs(data,
+    # multilingual) here (that also pulls in us_officials/world_leaders,
+    # meant for entity_tokens()/dedup matching elsewhere in this module —
+    # unaffected by this change). A real audit found the ENTIRE Trump
+    # cabinet (24 names) and 10 foreign heads of state/government were
+    # each independently sufficient to pass this filter regardless of any
+    # actual China/CCP content — real sample: 21493/~22500 items that
+    # cleared this filter this week landed at the rubric's own "clearly
+    # unrelated" 4.0 floor. A genuine China-relevant Trump/Rubio/Starmer
+    # story will independently contain a real China/CCP term anyway (this
+    # filter doesn't need their names as a separate trigger to catch it);
+    # ccp_leadership/notable (Xi, Politburo, Putin, Jack Ma, etc.) stay,
+    # since those ARE specifically China/CCP-adjacent by construction.
+    for full_name, short_form in (
+        data["ccp_leadership"] + data["notable"]
+        + multilingual.get("ccp_leadership_variants", [])
+        + multilingual.get("notable_variants", [])
+    ):
         keywords.add(full_name.lower())
         if short_form:
             keywords.add(short_form.lower())
@@ -460,13 +477,39 @@ def _build_china_signal_keywords() -> frozenset[str]:
             keywords.add(short_form.lower())
     for alias in data.get("aliases", []):
         keywords.add(alias.lower())
-    for full_name, aliases in multilingual.get("gpe_places", {}).get("pairs", []):
+    # 2026-09-14: keep the place's own (often CJK) full_name — still useful,
+    # e.g. a Chinese-language article naming "台湾" — but stop splitting the
+    # English alias string into individual words. That's what turned e.g.
+    # "US United States America" into 4 independent one-word triggers
+    # ("us"/"united"/"states"/"america"), each far too generic on its own
+    # (bare "us" alone collides with the ordinary English pronoun) and
+    # applied identically across ~35 countries with no China connection.
+    # The genuinely relevant countries (China/Russia/Iran/North Korea/
+    # Taiwan/Hong Kong/Macau/Xinjiang/Tibet) already have their real
+    # English terms hardcoded explicitly in the literal set above, so
+    # nothing there is lost by dropping this line.
+    for full_name, _aliases in multilingual.get("gpe_places", {}).get("pairs", []):
         keywords.add(full_name.lower())
-        keywords.update(aliases.lower().split())
     for compound, _short_forms in multilingual.get("joint_mentions", {}).get("pairs", []):
         keywords.add(compound.lower())
+    # 2026-09-14: inflected_stems (Russian/Polish name declensions) is a
+    # SEPARATE list from _all_person_pairs() covering the identical
+    # us_officials/world_leaders/special_envoys roster (Trump, Vance,
+    # Rubio, Starmer, Macron, etc.) for THIS module's cross-language entity
+    # matching — without this exclusion, "трамп"/"trump" leak straight back
+    # into has_china_signal() through this side door even after excluding
+    # those categories above. Putin/Lavrov/Mishustin (from notable/
+    # notable_variants) are correctly kept.
+    excluded_short_forms = {
+        sf.lower() for _fn, sf in (
+            data.get("us_officials", []) + data.get("world_leaders", [])
+            + multilingual.get("special_envoys_and_speakers", [])
+        ) if sf
+    }
     for lang_stems in (multilingual.get("inflected_stems", {}).get("ru", []), multilingual.get("inflected_stems", {}).get("pl", [])):
-        for stem, _short_form in lang_stems:
+        for stem, short_form in lang_stems:
+            if short_form and short_form.lower() in excluded_short_forms:
+                continue
             keywords.add(stem.lower())
     return frozenset(keywords)
 
