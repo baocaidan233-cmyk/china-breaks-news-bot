@@ -544,8 +544,22 @@ def has_china_signal(text: str) -> bool:
 # Path-based, not domain-based: several tracked sources (Reuters, SMH,
 # Yahoo, WSJ) are legitimate elsewhere on the same domain, only their
 # lifestyle/entertainment section is off-mission for this channel.
+#
+# 2026-09-14, extended per a parallel AM1ST audit (same architecture,
+# different source pool) that found sports/betting/shopping/odd-news
+# sections were its own dominant low-score-URL pattern. Checked against
+# this channel's own real data before adding, not ported blind: sports
+# alone is real and material here too (845/21493 of this week's own
+# floor-scored (4.0) items, 3.9%) with zero false positives against the
+# channel's entire real candidate-pool history (1613 candidates checked).
+# shopping/deals/insurance/odd_news barely register in THIS channel's own
+# data (well under 1% combined) — kept anyway since they're free and
+# already zero-false-positive, but sports is the one doing real work here.
 _OFFTOPIC_URL_RE = re.compile(
-    r"/(entertainment|lifestyle|celebrity|celebrities|gossip|page-six|style|fashion)/",
+    r"/(entertainment|lifestyle|celebrity|celebrities|gossip|page-six|style|fashion"
+    r"|sports?|nfl|nba|mlb|nhl|outkick-sports|outkick-betting|betting"
+    r"|shopping|deals?|ticket-sales|credit-cards?|pet-insurance|insurance|cars-trucks"
+    r"|odd_news|gallery)/",
     re.IGNORECASE,
 )
 
