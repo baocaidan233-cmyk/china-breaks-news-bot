@@ -532,6 +532,32 @@ def has_china_signal(text: str) -> bool:
     China story," same fail-open bias as the rest of this module."""
     return bool(_CHINA_SIGNAL_RE.search(text))
 
+
+# Entertainment/lifestyle/gossip section markers — real audit of a week's
+# scored-but-rejected candidates (2026-09-14) found ~1.2% came from these
+# sections (Yahoo/WSJ/SMH/Reuters "/lifestyle/", "/entertainment/", NY
+# Post's "/page-six/", etc.) — never a plausible CCP-exposure angle, and
+# unlike has_china_signal() above these can carry an incidental keyword
+# hit (a celebrity "wearing a China-made watch," a Hong Kong actress
+# winning an award) that would otherwise still burn a real Scorer call.
+# Path-based, not domain-based: several tracked sources (Reuters, SMH,
+# Yahoo, WSJ) are legitimate elsewhere on the same domain, only their
+# lifestyle/entertainment section is off-mission for this channel.
+_OFFTOPIC_URL_RE = re.compile(
+    r"/(entertainment|lifestyle|celebrity|celebrities|gossip|page-six|style|fashion)/",
+    re.IGNORECASE,
+)
+
+
+def is_offtopic_url_section(url: str) -> bool:
+    """Cheap, pre-embedding URL-path pre-filter (2026-09-14) — same fail-
+    open philosophy as has_china_signal() (a false match here only costs
+    one skipped item, never masks a real bug), but checked on the raw URL
+    before that function ever runs, so it can catch off-mission sections
+    has_china_signal() alone would sometimes miss (a keyword collision
+    inside a gossip piece)."""
+    return bool(_OFFTOPIC_URL_RE.search(url))
+
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
 # ported unchanged (a lookup miss is just a no-op, effectively inert for

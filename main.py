@@ -71,7 +71,7 @@ from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
 from core.config import load_config
-from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, log_decision, no_conflicting_specifics, verify_compatibility
+from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, is_offtopic_url_section, log_decision, no_conflicting_specifics, verify_compatibility
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
@@ -177,6 +177,45 @@ async def run_cycle(
         doc_freq.update(toks)
     doc_count = len(survivors)
 
+    # 2026-09-14 — moved here from just before Scorer.score() below: this
+    # was previously the LAST gate before the LLM call, but it's a pure
+    # per-item text/URL check with no dependency on anything computed by
+    # the semantic-dedup layer beneath it — running it here instead means
+    # the ~70% of items with no China/CCP signal never pay for an
+    # embedding call either (real audit found embeddings, not chat calls,
+    # were this pipeline's single largest OpenAI call count). Doesn't
+    # change which items ever reach the Scorer — has_china_signal() is a
+    # deterministic per-item check, unaffected by clustering order — only
+    # when the wasted ones get dropped. doc_freq/doc_count above are
+    # deliberately computed from the FULL pre-filter survivors list, not
+    # this narrower pool: verify_compatibility()'s lexical fallback needs a
+    # genuinely generic background-vocabulary sample, and a pool already
+    # narrowed to China/CCP-relevant text would make a biased one.
+    scoring_pool = []
+    offtopic_url_count = 0
+    prefiltered_count = 0
+    for c in survivors:
+        if is_offtopic_url_section(c.url):
+            offtopic_url_count += 1
+            continue
+        candidate_text = event_identity_text(c.title, c.description)
+        if not has_china_signal(candidate_text):
+            prefiltered_count += 1
+            log_decision(config, {
+                "check_type": "prefilter_reject",
+                "candidate_url": c.url,
+                "candidate_text": candidate_text,
+            })
+            continue
+        scoring_pool.append(c)
+    if offtopic_url_count:
+        logger.info("run_cycle: %d/%d dropped — off-mission URL section (entertainment/lifestyle/etc.)", offtopic_url_count, len(survivors))
+    if prefiltered_count:
+        logger.info(
+            "run_cycle: %d/%d skipped Scorer LLM call (no China/CCP signal, pre-filter)",
+            prefiltered_count, len(survivors) - offtopic_url_count,
+        )
+
     # Manual breaking-news override (2026-08-31, core/hot_topics.py) — every
     # currently-live flag for this bot's own channel, embedded once per
     # cycle. Empty in the common case (no flag active right now); a failed
@@ -211,7 +250,7 @@ async def run_cycle(
     clusters: list[dict] = []  # {"sources": set(), "earliest_source": str, "earliest_unix": int}
     cluster_members: list[list[tuple]] = []  # parallel to clusters: [(candidate, embedding), ...]
 
-    for c in survivors:
+    for c in scoring_pool:
         try:
             # Some RSS feeds dump full article text into "description" instead
             # of a short summary — truncate defensively so a single oversized
@@ -538,29 +577,13 @@ async def run_cycle(
     # to be true at runtime.
     trending_headlines = await fetch_trending_headlines()
     scored: list[tuple] = []  # (candidate, embedding, cluster_idx, passed)
-    prefiltered_count = 0
+    # has_china_signal()/is_offtopic_url_section() pre-filtering now happens
+    # far earlier (right after URL-hash dedup, before this cycle's
+    # embedding calls) — see that block's 2026-09-14 comment for why. Every
+    # candidate remaining in scoring_candidates by this point already
+    # cleared both checks, so there's nothing left to pre-filter here.
     for c, embedding, cluster_idx in scoring_candidates:
         try:
-            # 2026-09-07 cost fix: a real audit found 45.6% of a day's
-            # Scorer calls (2269/4969) scored exactly 4.0 — the rubric's
-            # own "clearly unrelated" floor — on titles hand-confirmed to
-            # have zero plausible China/CCP angle (Korean opinion column,
-            # Indian tuition-fee policy, Malaysian scam-penalty bill,
-            # Myanmar activist story). has_china_signal() catches this
-            # unambiguous case for free (pure Python, no LLM/embedding
-            # cost) before ever paying for the real gpt-4o-mini call — see
-            # its own docstring in core/event_identity.py for the
-            # disclosed residual gap (languages this gazetteer doesn't
-            # cover yet) and why every skip is logged for audit.
-            candidate_text = event_identity_text(c.title, c.description)
-            if not has_china_signal(candidate_text):
-                prefiltered_count += 1
-                log_decision(config, {
-                    "check_type": "prefilter_reject",
-                    "candidate_url": c.url,
-                    "candidate_text": candidate_text,
-                })
-                continue
             score_output = await scorer.score(c, trending_headlines)
             if score_output is None:
                 continue
@@ -572,11 +595,6 @@ async def run_cycle(
             scored.append((c, embedding, cluster_idx, passed))
         except Exception:
             logger.exception("run_cycle: unhandled error scoring %s, skipping this item", c.url)
-    if prefiltered_count:
-        logger.info(
-            "run_cycle: %d/%d skipped Scorer LLM call (no China/CCP signal, pre-filter)",
-            prefiltered_count, len(scoring_candidates),
-        )
 
     added_count = 0
     for cluster_idx, cluster in enumerate(clusters):
