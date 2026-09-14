@@ -386,7 +386,7 @@ class QdrantConfig(BaseModel):
     collection: str = "china_breaks_scrapped_embeddings"  # ingestion-side cross-cycle dedup cache (title+description) — was "chinabreaks_embeddings"
     posted_collection: str = "china_break_news_posting_embedding"  # publish-side "already posted" cache (post_content) — was "chinabreaks_posting_news_embedding"
     events_collection: str = "chinabreaks_events"  # event aggregation collection, see HeatConfig/EventStore — a genuinely different kind of thing from the two collections above (a group of points per underlying event, not one point per article)
-    cross_cycle_window_hours: int = 72
+    cross_cycle_window_hours: int = 240  # widened 72h -> 240h (10 days) 2026-09-13, per the user, to match heat.window_hours and publish.posted_dedup_window_hours
     cleanup_retention_days: int = 10
     timeout_seconds: int = 15  # AsyncQdrantClient has no timeout by default — AM1ST hit a real stalled-request hang without this; ported as a preventive default
 
@@ -444,62 +444,48 @@ class PublishConfig(BaseModel):
 
 
 class DynamicPublishConfig(BaseModel):
-    """Automatic publish-cadence scaling — ported from AM1ST 2026-09-06,
-    after AM1ST's own multi-day production test of it. Distinct from
-    hot_topics.py's manual fast lane (a human flags one specific story as
-    breaking); this instead reacts to how much genuinely strong material
-    the ingestion side is producing right now, with no human involved.
-    Signal: count of candidates newly added to the Notion pool in the last
-    lookback_hours with llm_score >= hot_score_floor (reusing
-    prompts/scoring_prompt.txt's own "8 — Major real-time trigger" band as
-    the floor, not an arbitrary new cutoff) — a cheap, existence-count-only
-    Notion query, same cost shape as hot_topics.py's
-    has_unpublished_hot_candidate().
+    '''Automatic publish-cadence scaling -- ported from AM1ST 2026-09-13,
+    replacing the old count-of-llm_score-over-7-in-trailing-2h design
+    (recalibrated once, 2026-09-08, from a real 48h/572-candidate sample --
+    see git history). That design was not acutely broken here the way it
+    was on AM1ST (real avg interval varied 17-26min day to day, not stuck
+    at one ceiling), but is the same single-narrow-signal/discrete-tier
+    architecture AM1ST's own real-data review found inferior. Full design
+    rationale (the three signals, why backlog/heat use ln(1+x), why the
+    reference bands self-calibrate) lives in core/publish_cadence.py --
+    this class is just the tunable knobs.
 
-    AM1ST's own thresholds (hot_score_floor/quiet_count/busy_count) were
-    calibrated from a real 33.5-hour, 956-candidate sample of ITS OWN
-    US-politics RSS volume — NOT independently valid for this project's
-    CCP-exposure source pool, which almost certainly has a different
-    volume profile. The class/mechanism is ported now (portable regardless
-    of topic); quiet_count/busy_count below are placeholders carried over
-    as a starting point, not a calibrated fact — recalibrate once real
-    chinabreaks candidate-volume data exists, the same way AM1ST's own
-    numbers were derived.
+    Three independent signals -- backlog (eligible candidate count), heat
+    (max heat_score among them), trending (max cosine similarity vs
+    Google News current headlines) -- each normalized to [0, 1] and
+    combined via noisy-OR (1 - (1-a)(1-b)(1-c)), mapped onto
+    [min_interval_seconds, max_interval_seconds]. Reference low/high bands
+    are not fixed: compute_dynamic_interval() keeps a rolling
+    calibration_window_days log and recomputes each band as that windows
+    real p10/p90 every call. The *_default fields are the bootstrap values
+    used until calibration_min_samples of real history accumulate --
+    derived from this bot's OWN real 2026-09-07..09-13 sample (backlog
+    p10=18/p90=209 from ~400 real cycles; heat p10-p90 mostly pinned at
+    1.0-2.0 with a real max of only 6.0 -- much lower ceiling than AM1ST's
+    same signal, this bot's stories rarely get corroborated as heavily;
+    trending p10=0.32/p90=0.50, max 0.80).'''
 
-    2026-09-08: recalibrated hot_score_floor using a real 48h/572-candidate
-    Notion sample, ahead of production launch. At the inherited floor=8.0,
-    score>=8.0 candidates occurred only 9 times in 48h, and the densest
-    real 2h window ever contained just 3 — busy_count=8 had literally
-    never fired (91 real compute_dynamic_interval log lines: 87 quiet, 4
-    normal, 0 busy) despite the docstring's own "15-39min band regardless"
-    intent above. Lowered the floor to 7.0 (score>=7.0 occurred 133 times
-    in the same window, with real 2h-window clustering up to 17) and left
-    busy_count=8 unchanged — simulating this pair against the real 48h
-    timestamp data at 30-min ticks gives quiet 25.5%/normal 42.6%/busy
-    31.9%, i.e. all three tiers now actually fire on real volume instead
-    of the range collapsing to one tier. quiet_count=1 was left as-is —
-    real data shows it already produces a healthy normal/quiet split once
-    busy is reachable.
+    min_interval_seconds: int = 900   # 15 min floor -- never faster than this regardless of signals
+    max_interval_seconds: int = 2340  # 39 min ceiling -- never slower than this regardless of signals
 
-    quiet_scale/max_interval_seconds reflect AM1ST's OWN reverted final
-    state (2026-09-06): an earlier, more aggressive version added a DEAD
-    tier (count==0) that could stretch the wait to 4 hours — AM1ST's user
-    tested this in production and rejected it, wanting every cycle checked
-    and, if warranted, published within a strict 15-39min band regardless
-    of how thin the pool is. A genuinely empty cycle is instead handled by
-    run_cycle()'s widen-on-empty giving up and publishing nothing for that
-    cycle (see publish.max_widen_attempts), not by the wait itself growing
-    long. Ported the reverted-to-simple state directly, not the
-    intermediate DEAD-tier version."""
+    calibration_log_path: str = 'logs/dynamic_interval_calibration.jsonl'
+    calibration_window_days: float = 14.0
+    calibration_min_samples: int = 50  # below this many recent samples, use the *_default bands instead of computed percentiles
 
-    hot_score_floor: float = 7.0  # was 8.0 — see 2026-09-08 recalibration note above
-    lookback_hours: float = 2.0
-    quiet_count: int = 1  # <= this many (but not zero) -> slow down — confirmed against real chinabreaks 48h data 2026-09-08
-    busy_count: int = 8  # >= this many -> speed up — confirmed against real chinabreaks 48h data 2026-09-08 (unchanged; only the floor needed to move)
-    quiet_scale: float = 1.3  # 30min base -> 39min
-    busy_scale: float = 0.5  # was 0.6 (only reached ~18min) — 30min base -> 15min, actually hitting min_interval_seconds now
-    min_interval_seconds: int = 900  # 15 min floor — never faster than this regardless of volume
-    max_interval_seconds: int = 2340  # 39 min ceiling — an empty cycle publishes nothing instead of the interval stretching further, see docstring
+    trending_check_top_k: int = 25  # cap on how many eligible candidates (by llm_score) get embedded against trending headlines each cycle, to bound cost against a pool that has run into the hundreds
+
+    backlog_low_default: float = 18.0
+    backlog_high_default: float = 209.0
+    heat_low_default: float = 0.6      # raw heat_score, not log -- transformed internally
+    heat_high_default: float = 5.0     # this bot's own real max observed was 6.0 -- much lower ceiling than AM1ST's same signal
+    trending_low_default: float = 0.30
+    trending_high_default: float = 0.65  # matches agents/priority_ranker.py's own _TRENDING_SIM_HIGH
+
 
 
 class AppConfig(BaseModel):

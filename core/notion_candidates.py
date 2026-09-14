@@ -275,56 +275,6 @@ async def mark_send_status(config: AppConfig, page_id: str) -> bool:
         return False
 
 
-async def count_recent_high_score(config: AppConfig, min_score: float, since_hours: float) -> int:
-    """Cheap count-only Notion query (page_size capped at 100, no real
-    pagination) — how many candidates were added to the pool in the last
-    since_hours with llm_score >= min_score, regardless of send_status or
-    publish.candidate_max_age_hours eligibility. Used by main_publish.py's
-    dynamic publish-cadence scaling (config.dynamic_publish) as a
-    real-time "how much strong material is ingestion actually producing
-    right now" signal — deliberately NOT query_eligible_candidates(): that
-    reflects the unpublished backlog, which shrinks every time something
-    gets published and isn't a good proxy for current news volume.
-    Ported from AM1ST 2026-09-06, with one necessary adaptation: also
-    filters on channel_name, same reason as every other query in this
-    module — this database is shared across more than one China-focused
-    channel, so an unfiltered count would mix in another channel's own
-    ingestion volume as if it were this bot's own signal. Fails open (0,
-    i.e. "quiet" — never speeds up on a failure) if the table isn't
-    configured or the request fails."""
-    notion = config.notion
-    if not notion.candidate_key or not notion.candidate_db_id:
-        return 0
-
-    props = notion.candidate_props
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
-    headers = {
-        "Authorization": f"Bearer {notion.candidate_key}",
-        "Notion-Version": NOTION_VERSION,
-        "Content-Type": "application/json",
-    }
-    body = {
-        "page_size": 100,
-        "filter": {
-            "and": [
-                {"property": props.channel_name, "select": {"equals": notion.channel_name}},
-                {"property": props.llm_score, "number": {"greater_than_or_equal_to": min_score}},
-                {"timestamp": "created_time", "created_time": {"after": cutoff}},
-            ]
-        },
-    }
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"https://api.notion.com/v1/databases/{notion.candidate_db_id}/query", headers=headers, json=body,
-            )
-            resp.raise_for_status()
-        return len(resp.json().get("results", []))
-    except Exception:
-        logger.exception("count_recent_high_score: Notion query failed")
-        return 0
-
-
 async def mark_extraction_failed(config: AppConfig, page_id: str) -> bool:
     """Flips extraction_failed to true — called by main_publish.py's
     run_cycle() the moment full-text extraction fails for a candidate.

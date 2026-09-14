@@ -98,7 +98,8 @@ from agents.writer import Writer
 from core.alerts import AlertNotifier
 from core.config import load_config
 from core.event_identity import EventVerifier
-from core.notion_candidates import count_recent_high_score, has_unpublished_hot_candidate, mark_extraction_failed, mark_send_status, mark_writer_rejected, query_eligible_candidates
+from core.notion_candidates import has_unpublished_hot_candidate, mark_extraction_failed, mark_send_status, mark_writer_rejected, query_eligible_candidates
+from core.publish_cadence import compute_dynamic_interval
 from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
 
@@ -321,38 +322,6 @@ async def run_cycle(
             logger.exception("run_cycle: failed to mark event as published for %s", winner.url)
 
     return published
-
-
-async def compute_dynamic_interval(config) -> float:
-    """Automatic cadence scaling (2026-09-06, ported from AM1ST's own
-    2026-09-05 addition, core/config.py's DynamicPublishConfig) — how long
-    to wait before the next cycle, reacting to how much strong material
-    ingestion is producing right now instead of always waiting a flat
-    publish.interval_seconds. Distinct from and complementary to
-    hot_topics.py's manual fast lane below: that still applies on top of
-    whatever base interval this returns, for the specific case of a
-    human-flagged breaking story. Fails open to the unscaled base interval
-    if the Notion count query fails (count_recent_high_score itself fails
-    open to 0, i.e. "quiet" — never speeds up on a failure).
-
-    quiet_count/busy_count are AM1ST's own real-data-calibrated
-    placeholders, not independently valid for this project's own CCP-
-    exposure source volume — see DynamicPublishConfig's docstring."""
-    dp = config.dynamic_publish
-    base = config.publish.interval_seconds
-    count = await count_recent_high_score(config, dp.hot_score_floor, dp.lookback_hours)
-    if count >= dp.busy_count:
-        scale = dp.busy_scale
-    elif count <= dp.quiet_count:
-        scale = dp.quiet_scale
-    else:
-        scale = 1.0
-    interval = max(dp.min_interval_seconds, min(dp.max_interval_seconds, base * scale))
-    logger.info(
-        "compute_dynamic_interval: %d candidate(s) with llm_score>=%.1f in the last %.1fh -> scale=%.2f, interval=%.0fs",
-        count, dp.hot_score_floor, dp.lookback_hours, scale, interval,
-    )
-    return interval
 
 
 async def main() -> None:
