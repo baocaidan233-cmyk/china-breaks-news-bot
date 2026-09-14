@@ -25,6 +25,7 @@ import re
 import time
 from itertools import combinations
 from pathlib import Path
+from urllib.parse import urlparse
 
 import jieba
 import redis.asyncio as redis
@@ -548,6 +549,18 @@ _OFFTOPIC_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# koreatimes.co.kr real, confirmed exception (2026-09-14 false-positive
+# audit against this channel's own real candidate-pool history): it files
+# genuine cross-strait/China political stories under "/lifestyle/" (e.g.
+# "/lifestyle/arts-theater/.../taiwan-china-row-at-gwangju-biennale",
+# "/lifestyle/travel-food/.../korea-china-partner-to-showcase-tourism" —
+# both real, already-scored-6.0 candidates in production before this
+# filter existed) — this outlet's own section taxonomy just doesn't match
+# the English-language convention the regex above assumes, so the domain
+# is exempted from this specific check rather than trying to out-guess
+# its editorial categorization with more regex tweaks.
+_OFFTOPIC_URL_EXEMPT_DOMAINS = {"koreatimes.co.kr", "www.koreatimes.co.kr"}
+
 
 def is_offtopic_url_section(url: str) -> bool:
     """Cheap, pre-embedding URL-path pre-filter (2026-09-14) — same fail-
@@ -556,6 +569,8 @@ def is_offtopic_url_section(url: str) -> bool:
     before that function ever runs, so it can catch off-mission sections
     has_china_signal() alone would sometimes miss (a keyword collision
     inside a gossip piece)."""
+    if urlparse(url).netloc.lower() in _OFFTOPIC_URL_EXEMPT_DOMAINS:
+        return False
     return bool(_OFFTOPIC_URL_RE.search(url))
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
