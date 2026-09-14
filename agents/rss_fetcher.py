@@ -79,13 +79,35 @@ def _parse_published_utc(entry) -> datetime:
 
 
 async def fetch_source(client: httpx.AsyncClient, source: RssSource) -> list[Candidate]:
-    try:
-        resp = await client.get(source.feed_url)
-        resp.raise_for_status()
-        content = resp.content
-    except Exception:
+    content = None
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            resp = await client.get(source.feed_url)
+            resp.raise_for_status()
+            content = resp.content
+            break
+        except httpx.HTTPStatusError as e:
+            # A real 4xx/5xx from the server (bot-block, moved/dead feed,
+            # etc.) — a same-request retry won't change the server's mind,
+            # so don't waste a cycle's worth of time on it.
+            last_exc = e
+            break
+        except Exception as e:
+            # 2026-09-14 — a real batch audit found a meaningful fraction
+            # of these are transient (ConnectTimeout/PoolTimeout/etc. from
+            # contention across ~280 concurrent fetches every cycle, not
+            # the remote feed actually being down — confirmed by re-fetching
+            # the exact same "failed" feeds individually and getting a
+            # clean 200 every time). One short retry recovers those without
+            # having to perfectly tune concurrency on a shared, noisy VM.
+            last_exc = e
+            if attempt == 0:
+                await asyncio.sleep(2)
+
+    if content is None:
         if not _needs_playwright_fallback(source.feed_url):
-            logger.exception("rss_fetcher: failed to fetch %s (%s)", source.name, source.feed_url)
+            logger.error("rss_fetcher: failed to fetch %s (%s)", source.name, source.feed_url, exc_info=last_exc)
             return []
         logger.info("rss_fetcher: plain fetch failed for %s, retrying via shared render service", source.name)
         # mode="raw" — the feed's actual response body, not Chromium's own
@@ -127,9 +149,27 @@ async def fetch_all(config: AppConfig, sources: list[RssSource]) -> list[Candida
     if not sources:
         return []
 
+    # 2026-09-14 — real audit found a real cycle's ~280+ fully-concurrent
+    # fetch_source() calls spuriously fail a meaningful fraction of healthy
+    # feeds every single cycle (confirmed live: re-fetching the exact same
+    # "failed" feeds one at a time returned 200 every time). Tried widening
+    # httpx's connection pool first (max_connections sized to source count)
+    # — that made it WORSE (82/284 spurious failures vs the ~69 baseline),
+    # so the pool wasn't the real bottleneck; something else (most likely
+    # the asyncio default executor's small thread pool, used for every
+    # blocking DNS lookup) chokes when this many new connections start at
+    # once. A/B tested directly on this VM: bounding concurrency with a
+    # semaphore cut spurious failures roughly in half (36/284 at 25, vs
+    # 82/284 unbounded) while keeping a full cycle's fetch under a minute
+    # — comfortably inside the ~13min cycle interval.
+    sem = asyncio.Semaphore(25)
+
+    async def _bounded_fetch(client: httpx.AsyncClient, source: RssSource) -> list[Candidate]:
+        async with sem:
+            return await fetch_source(client, source)
+
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=FEED_HEADERS) as client:
-        # All sources read concurrently, once per cycle — no rotation.
-        per_source = await asyncio.gather(*(fetch_source(client, s) for s in sources))
+        per_source = await asyncio.gather(*(_bounded_fetch(client, s) for s in sources))
     results = [c for batch in per_source for c in batch]
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=config.max_publish_age_hours)
