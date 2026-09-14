@@ -561,6 +561,18 @@ _OFFTOPIC_URL_RE = re.compile(
 # its editorial categorization with more regex tweaks.
 _OFFTOPIC_URL_EXEMPT_DOMAINS = {"koreatimes.co.kr", "www.koreatimes.co.kr"}
 
+# Xi Jinping URL-slug exemption (2026-09-14, user request) — checked
+# against real data before adding: unlike "trump" (a constant Western
+# tabloid/pop-culture fixture — a same-day audit found 11/166 real
+# offtopic hits were pure celebrity gossip merely namedropping him, e.g.
+# "Ivanka Trump flaunting perfect life," which this whitelist would have
+# let straight through to a wasted Scorer call), "xi jinping" had ZERO
+# matches among every offtopic-flagged URL in this channel's entire
+# production history (9/6-9/14, 253 hits checked) — no real precedent for
+# gossip/lifestyle content namedropping him, so this exemption carries no
+# demonstrated downside the way a bare "trump" one would.
+_XI_JINPING_URL_RE = re.compile(r"xi-?jinping|xi_jinping", re.IGNORECASE)
+
 
 def is_offtopic_url_section(url: str) -> bool:
     """Cheap, pre-embedding URL-path pre-filter (2026-09-14) — same fail-
@@ -570,6 +582,8 @@ def is_offtopic_url_section(url: str) -> bool:
     has_china_signal() alone would sometimes miss (a keyword collision
     inside a gossip piece)."""
     if urlparse(url).netloc.lower() in _OFFTOPIC_URL_EXEMPT_DOMAINS:
+        return False
+    if _XI_JINPING_URL_RE.search(url):
         return False
     return bool(_OFFTOPIC_URL_RE.search(url))
 
