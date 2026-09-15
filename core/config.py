@@ -137,6 +137,12 @@ class RedisConfig(BaseModel):
     # real history instead of starting a second, disconnected one.
     key_prefix: str = "newsroom:cnbreaks:url_hash:"
     ttl_seconds: int = 864000  # 10 days — standing dedup architecture default, unchanged from AM1ST
+    caption_prefix: str = "chinabreaks:caption:"
+    # Ported from AM1ST 2026-09-06 — see core/redis_store.py's CaptionCache
+    # docstring for the real production bug this closes. TTL set well above
+    # PublishConfig.candidate_max_age_hours (24h ceiling) so it always
+    # outlives the candidate's eligibility window and self-expires after.
+    caption_ttl_seconds: int = 172800  # 48h
 
 
 class OpenAIConfig(BaseModel):

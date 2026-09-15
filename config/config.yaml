@@ -61,6 +61,8 @@ redis:
   # so a URL the old system already saw won't get re-ingested as if new.
   key_prefix: "newsroom:cnbreaks:url_hash:"
   ttl_seconds: 864000  # 10 days — standing dedup architecture default, unchanged from AM1ST
+  caption_prefix: "chinabreaks:caption:"
+  caption_ttl_seconds: 172800  # 48h — see core/config.py RedisConfig comment
 
 openai:
   chat_model: "gpt-4o-mini"  # every OpenAI-backed call — Writer, Scorer, PriorityRanker, EventVerifier — this project's standing "gpt-4o-mini everywhere" rule
