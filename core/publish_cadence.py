@@ -154,9 +154,13 @@ async def compute_dynamic_interval(config: AppConfig) -> float:
     # "three-signal" design had degenerated into a backlog-only trigger.
     # Market Watcher (same ported file) independently reproduced it: median
     # interval stuck at its 900s floor with u_heat/u_trending both ~0.00.
-    # China Breaks has not hit it yet ONLY because this bot's u_backlog
-    # happened to read ~0.60-0.64 at the 09-16 check -- a data coincidence,
-    # not a safe design; it recurs here as soon as supply outpaces publish.
+    # China Breaks was assumed still unaffected (u_backlog read ~0.60-0.64 at
+    # a spot check), but its own main_publish.log disproves that: u_backlog
+    # has printed 1.00 since 2026-09-15 02:44 and combined=1.00 occurred 17x
+    # on 09-13, 57x on 09-14, 85x on 09-15 -- i.e. essentially every cycle of
+    # 09-15, with u_heat=0.00 and u_trending~0.10 alongside. 320 of 628
+    # lifetime calls (51%) ended at the 900s floor. Same degeneration as the
+    # other two, already in progress here, not a future risk.
     # A plain average requires the three signals to actually agree before
     # urgency climbs: one maxed signal now caps combined at 1/3, not 1.0.
     # AM1ST's verified fix, applied here unchanged.
