@@ -464,7 +464,8 @@ class DynamicPublishConfig(BaseModel):
     Three independent signals -- backlog (eligible candidate count), heat
     (max heat_score among them), trending (max cosine similarity vs
     Google News current headlines) -- each normalized to [0, 1] and
-    combined via noisy-OR (1 - (1-a)(1-b)(1-c)), mapped onto
+    combined by plain average ((a+b+c)/3 -- was noisy-OR until
+    2026-09-16, see compute_dynamic_interval()), mapped onto
     [min_interval_seconds, max_interval_seconds]. Reference low/high bands
     are not fixed: compute_dynamic_interval() keeps a rolling
     calibration_window_days log and recomputes each band as that windows

@@ -89,7 +89,7 @@ def _urgency(value: float, low: float, high: float, *, log_space: bool) -> float
 
 async def compute_dynamic_interval(config: AppConfig) -> float:
     """Automatic cadence scaling -- see DynamicPublishConfig docstring
-    for the full design (three noisy-OR-combined signals: backlog, heat,
+    for the full design (three averaged signals: backlog, heat,
     trending; rolling self-calibrated reference bands). Runs its own
     query_eligible_candidates() call rather than reusing run_cycle()s --
     a second cheap Notion query is simpler and lower-risk than threading
@@ -144,7 +144,23 @@ async def compute_dynamic_interval(config: AppConfig) -> float:
     u_heat = _urgency(heat, heat_low, heat_high, log_space=True)
     u_trending = _urgency(trending, trending_low, trending_high, log_space=False)
 
-    combined = 1 - (1 - u_backlog) * (1 - u_heat) * (1 - u_trending)
+    # 2026-09-16: was noisy-OR (1 - product of complements), which means any
+    # ONE saturated signal alone forces combined near 1.0 regardless of the
+    # other two. AM1ST proved this degenerate in production today: its own
+    # candidate supply structurally exceeds publish consumption, so backlog
+    # sat at/near its calibrated p90 continuously and pinned interval at
+    # min_interval_seconds for two straight days while heat/trending were
+    # unremarkable (u_heat=0.49, u_trending=0.00 at combined=0.99) -- the
+    # "three-signal" design had degenerated into a backlog-only trigger.
+    # Market Watcher (same ported file) independently reproduced it: median
+    # interval stuck at its 900s floor with u_heat/u_trending both ~0.00.
+    # China Breaks has not hit it yet ONLY because this bot's u_backlog
+    # happened to read ~0.60-0.64 at the 09-16 check -- a data coincidence,
+    # not a safe design; it recurs here as soon as supply outpaces publish.
+    # A plain average requires the three signals to actually agree before
+    # urgency climbs: one maxed signal now caps combined at 1/3, not 1.0.
+    # AM1ST's verified fix, applied here unchanged.
+    combined = (u_backlog + u_heat + u_trending) / 3
     span = dp.max_interval_seconds - dp.min_interval_seconds
     interval = dp.max_interval_seconds - combined * span
     interval = max(dp.min_interval_seconds, min(dp.max_interval_seconds, interval))
