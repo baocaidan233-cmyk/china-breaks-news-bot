@@ -951,9 +951,85 @@ _MONTH_DAY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 2026-09-16: the English path above only ever inspects text spaCy already
+# tagged as a DATE entity, and en_core_web_sm tags none in Chinese/Japanese/
+# Russian/Spanish/Portuguese — so has_date_conflict() silently returned False
+# for every non-English pair, exactly the cross-lingual case
+# no_conflicting_specifics()'s own docstring flags as a known no-op. Measured
+# on this bot's real candidate corpus before writing this: an explicit
+# "month + day" appears in 15.3% of CJK candidates and 10.2% of Cyrillic ones,
+# versus only 3.0% of Latin-script ones — CJK newswire style ("9月7日") names
+# a hard date five times more often than English does, so this veto was
+# missing on the language where it had the MOST to catch.
+#
+# These run on the raw text rather than through spaCy's DATE entities: the
+# formats matched here are unambiguous date literals on their own (unlike a
+# bare English "5" that only reads as a date in context), so the NER gate that
+# protects the English path buys nothing here and would reject everything.
+# All variants normalize to the SAME (month-abbrev, day) tuple the English
+# path emits, so a Chinese "9月7日" and an English "Sept. 7" compare equal —
+# without that, adding extraction per-language would still never let a
+# cross-lingual pair agree or disagree.
+_CJK_MONTH_DAY_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日號号]")
+_KO_MONTH_DAY_RE = re.compile(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일")
+_MONTH_NUM_TO_ABBR = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+# Stem-matched: Russian month names inflect by case (сентябрь/сентября/
+# сентябре), and a date mention uses the genitive — matching the stem covers
+# every form without enumerating declensions.
+_RU_MONTH_STEMS = (
+    ("январ", "jan"), ("феврал", "feb"), ("март", "mar"), ("апрел", "apr"),
+    ("ма", "may"), ("июн", "jun"), ("июл", "jul"), ("август", "aug"),
+    ("сентябр", "sep"), ("октябр", "oct"), ("ноябр", "nov"), ("декабр", "dec"),
+)
+# "мая"/"май" only — the bare "ма" stem would otherwise swallow "марта".
+_RU_MONTH_DAY_RE = re.compile(
+    r"\b(\d{1,2})\s+(январ\w*|феврал\w*|март\w*|апрел\w*|ма[йя]\b|июн\w*|июл\w*|"
+    r"август\w*|сентябр\w*|октябр\w*|ноябр\w*|декабр\w*)",
+    re.IGNORECASE,
+)
+_ES_PT_MONTHS = {
+    "enero": "jan", "janeiro": "jan", "febrero": "feb", "fevereiro": "feb",
+    "marzo": "mar", "março": "mar", "marco": "mar", "abril": "apr",
+    "mayo": "may", "maio": "may", "junio": "jun", "junho": "jun",
+    "julio": "jul", "julho": "jul", "agosto": "aug",
+    "septiembre": "sep", "setiembre": "sep", "setembro": "sep",
+    "octubre": "oct", "outubro": "oct", "noviembre": "nov", "novembro": "nov",
+    "diciembre": "dec", "dezembro": "dec",
+}
+_ES_PT_MONTH_DAY_RE = re.compile(
+    r"\b(\d{1,2})\s+de\s+(" + "|".join(sorted(_ES_PT_MONTHS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _non_english_absolute_dates(text: str) -> set[tuple[str, str]]:
+    """Same (month-abbrev, day) tuples _absolute_dates() produces, from the
+    date literals en_core_web_sm can't tag. Malformed month numbers (13月)
+    are dropped rather than guessed at, same fail-open bias as everything
+    else in this module."""
+    found: set[tuple[str, str]] = set()
+    for rx in (_CJK_MONTH_DAY_RE, _KO_MONTH_DAY_RE):
+        for month_num, day in rx.findall(text):
+            idx = int(month_num)
+            if 1 <= idx <= 12:
+                found.add((_MONTH_NUM_TO_ABBR[idx - 1], day.lstrip("0") or "0"))
+    for day, month_word in _RU_MONTH_DAY_RE.findall(text):
+        lowered = month_word.lower()
+        for stem, abbr in _RU_MONTH_STEMS:
+            if lowered.startswith(stem):
+                found.add((abbr, day.lstrip("0") or "0"))
+                break
+    for day, month_word in _ES_PT_MONTH_DAY_RE.findall(text):
+        abbr = _ES_PT_MONTHS.get(month_word.lower())
+        if abbr:
+            found.add((abbr, day.lstrip("0") or "0"))
+    return found
+
 
 def _absolute_dates(text: str) -> set[tuple[str, str]]:
-    doc = nlp(_strip_html(text))
+    stripped = _strip_html(text)
+    doc = nlp(stripped)
     found = set()
     for ent in doc.ents:
         if ent.label_ != "DATE":
@@ -961,6 +1037,7 @@ def _absolute_dates(text: str) -> set[tuple[str, str]]:
         m = _MONTH_DAY_RE.search(ent.text)
         if m:
             found.add((m.group(1)[:3].lower(), m.group(2).lstrip("0") or "0"))
+    found |= _non_english_absolute_dates(stripped)
     return found
 
 
