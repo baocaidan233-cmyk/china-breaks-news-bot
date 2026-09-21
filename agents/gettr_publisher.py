@@ -12,8 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 class GettrPublisher:
-    """Text-only post — ported unchanged from AM1ST, whose own workflow
-    never attaches media, so post_content is the entire payload. Same
+    """Text post, with or without an attached image — the text-only path was
+    ported unchanged from AM1ST, whose own workflow never attaches media, so
+    post_content was the entire payload; the `media` path was added 2026-09-21
+    for the three sources this channel posts as a rendered headline card
+    instead of as a link (see agents/headline_card.py). Same
     multipart/x-app-auth publish mechanism as the sibling bots (see
     russia_news/agents/gettr_publisher.py). No real Gettr credentials are
     configured for this build — the real live channel this bot is meant
@@ -29,7 +32,12 @@ class GettrPublisher:
     workflow node ("Prepare Gettr Post w/o Media") and is confirmed
     working there. Gettr rejects the whole post if any of these four are
     sent as an empty string rather than omitted entirely — see the `if`
-    guards in _build_payload below, matching that reference implementation."""
+    guards in _build_payload below, matching that reference implementation.
+
+    A media post carries neither those preview fields nor a URL in its text:
+    the image IS the card, so there is nothing to preview. Its shape (imgs +
+    main, both the same uploaded image) is China_Scandal_News_EN's, which is
+    live against the real API."""
 
     def __init__(self, config: AppConfig, dry_run: bool = False) -> None:
         self._config = config
@@ -37,6 +45,7 @@ class GettrPublisher:
 
     def _build_payload(
         self, text: str, prev_desc: str | None, prev_img: str | None, prev_src_link: str | None, prev_ttl: str | None,
+        media: dict | None = None,
     ) -> dict:
         now_ms = int(time.time() * 1000)
         data = {
@@ -47,6 +56,10 @@ class GettrPublisher:
             "cdate": now_ms,
             "uid": self._config.gettr.user_id,
         }
+        if media:
+            thumb = media.get("screen") or media.get("ori")
+            data.update({"imgs": [thumb], "main": thumb})
+            return {"data": data, "aux": None, "serial": "post"}
         if prev_desc:
             data["dsc"] = prev_desc
         if prev_img:
@@ -65,15 +78,16 @@ class GettrPublisher:
         prev_img: str | None = None,
         prev_src_link: str | None = None,
         prev_ttl: str | None = None,
+        media: dict | None = None,
     ) -> str | None:
         gettr = self._config.gettr
 
         if self._dry_run or not gettr.user_id or not gettr.user_token:
-            payload = self._build_payload(text, prev_desc, prev_img, prev_src_link, prev_ttl)
+            payload = self._build_payload(text, prev_desc, prev_img, prev_src_link, prev_ttl, media)
             logger.info("[dry-run] would POST %s content=%s", gettr.api_url, json.dumps(payload, ensure_ascii=False))
             return "dry-run-post-id"
 
-        payload = self._build_payload(text, prev_desc, prev_img, prev_src_link, prev_ttl)
+        payload = self._build_payload(text, prev_desc, prev_img, prev_src_link, prev_ttl, media)
         headers = {"x-app-auth": json.dumps({"user": gettr.user_id, "token": gettr.user_token})}
         files = {"content": (None, json.dumps(payload))}
 

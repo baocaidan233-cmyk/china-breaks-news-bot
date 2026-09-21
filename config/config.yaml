@@ -169,6 +169,7 @@ extraction:
 
 gettr:
   api_url: "https://gettr.com/api/u/post"
+  media_upload_host: "https://upload.gettr.com"
 
 publish:
   interval_seconds: 1800       # 30 minutes — deployment note: stagger this process's start time to land near :02/:32 past the hour (vs AM1ST's :17/:47) if ever run alongside it on the same host; not anchored in code today, see core/config.py

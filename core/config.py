@@ -410,6 +410,7 @@ class GettrConfig(BaseModel):
     user_id: str = ""  # env: GETTR_USER_ID — leave blank; the real live channel's identity (username "chinabreaks", userId "gettrfoodofficial") is documented in README as reference info only, never as a committed value
     user_token: str = ""  # env: GETTR_USER_TOKEN — never commit a real token anywhere
     api_url: str = "https://gettr.com/api/u/post"
+    media_upload_host: str = "https://upload.gettr.com"  # separate host from api_url — the 4-step CDN upload flow agents/media_uploader.py drives for the rendered headline card
 
 
 class PublishConfig(BaseModel):

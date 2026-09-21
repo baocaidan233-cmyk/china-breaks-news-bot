@@ -61,6 +61,12 @@ winner's own article URL right before publishing, so the post shows a
 real preview card instead of a bare appended URL with no card — see
 agents/gettr_publisher.py's docstring for the field names involved.
 
+Three sources are the exception (2026-09-21): a Google News, SCMP or
+ZeroHedge winner gets no URL appended and no link preview at all, and
+instead carries a 1:1 headline card this bot draws and uploads itself —
+see agents/headline_card.py for which sources and why, and _publish()
+below for the fallback when the card can't be made.
+
 The posted-dedup embedding (both the check in find_publishable and the
 final write below) uses agents/posted_dedup_checker.py's
 content_for_embedding() to strip the appended "\n\n{url}" suffix before
@@ -78,6 +84,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 import sys
 import time
@@ -89,6 +96,8 @@ from agents.candidate_selector import select_batch
 from agents.embedder import Embedder
 from agents.extractor import Extractor
 from agents.gettr_publisher import GettrPublisher
+from agents.headline_card import card_attribution, card_headline, make_plain_card, uses_headline_card
+from agents.media_uploader import MediaUploader
 from agents.og_metadata import fetch_link_preview
 from agents.posted_dedup_checker import content_for_embedding, find_publishable
 from agents.priority_ranker import PriorityRanker, log_publish_outcome
@@ -132,6 +141,40 @@ def _build_background(matched: dict | None) -> str:
     return " ".join(parts)
 
 
+async def _build_headline_card(winner, uploader: MediaUploader) -> dict | None:
+    """Draws the winner's 1:1 card and uploads it, returning Gettr media
+    metadata — or None if anything went wrong, in which case run_cycle falls
+    back to the ordinary link post rather than dropping the publish. Drawing
+    is PIL, which is blocking, so it runs in the default executor."""
+    headline = card_headline(winner.post_content, winner.title)
+    if not headline:
+        return None
+    attribution = card_attribution(winner.author, winner.url, winner.title)
+
+    path = f"/tmp/cb_card_{winner.url_hash or winner.page_id}.png"
+    try:
+        await asyncio.get_running_loop().run_in_executor(
+            None, make_plain_card, headline, path, attribution,
+        )
+        with open(path, "rb") as fh:
+            blob = fh.read()
+    except Exception:
+        logger.exception("headline card: render failed for %s", winner.url)
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    meta = await uploader.upload_png(blob, filename=os.path.basename(path))
+    if meta is None:
+        logger.warning("headline card: upload failed for %s", winner.url)
+        return None
+    logger.info("headline card: made for %s (%d bytes) — %.70s", winner.url, len(blob), headline)
+    return meta
+
+
 async def run_cycle(
     config,
     embedder: Embedder,
@@ -140,6 +183,7 @@ async def run_cycle(
     event_store: EventStore,
     event_verifier: EventVerifier,
     publisher: GettrPublisher,
+    uploader: MediaUploader,
     extractor: Extractor,
     writer: Writer,
     staleness_checker: StalenessChecker,
@@ -272,8 +316,15 @@ async def run_cycle(
                 await mark_writer_rejected(config, c.page_id)
                 continue
             # Link appended after generation, not counted against the writer's
-            # word cap — the AI's own output stays pure caption text.
-            c.post_content = f"{post_content}\n\n{c.url}"
+            # word cap — the AI's own output stays pure caption text. A card
+            # source gets no link at all (2026-09-21): the card replaces it,
+            # and appending a URL that no longer has a preview would just put
+            # a bare news.google.com/rss/articles/CBMi... blob under the image.
+            # Decided here rather than at publish time so what gets embedded
+            # for posted-dedup is the same shape either way — see
+            # agents/posted_dedup_checker.py's content_for_embedding(), which
+            # strips this exact suffix back off when it is present.
+            c.post_content = post_content if uses_headline_card(c.author, c.url) else f"{post_content}\n\n{c.url}"
             generated.append(c)
 
         if not generated:
@@ -293,21 +344,43 @@ async def run_cycle(
         logger.info("run_cycle: no publishable candidate found after widening — nothing to publish this cycle")
         return False
 
-    og = await fetch_link_preview(winner.url)
-    post_id = await publisher.publish(
-        winner.post_content,
-        log_ref=winner.url,
-        prev_desc=og.get("prev_desc") or winner.description or None,
-        prev_img=og.get("prev_img"),
-        prev_src_link=og.get("prev_src_link") or winner.url,
-        prev_ttl=og.get("prev_ttl") or winner.title,
-    )
+    # A card source publishes the image and nothing else; anything else — and
+    # a card source whose card could not be drawn or uploaded — publishes the
+    # link with its OG preview, exactly as before. The fallback re-appends the
+    # URL that the generation loop above deliberately left off, so a failed
+    # card degrades to today's post rather than to a post with no way to reach
+    # the article.
+    card_meta = None
+    if uses_headline_card(winner.author, winner.url):
+        card_meta = await _build_headline_card(winner, uploader)
+        if card_meta is None:
+            logger.warning(
+                "headline card: falling back to a link post for %s (source=%s)",
+                winner.url, winner.author,
+            )
+            winner.post_content = f"{winner.post_content}\n\n{winner.url}"
+
+    if card_meta is not None:
+        post_id = await publisher.publish(
+            winner.post_content, log_ref=winner.url, media=card_meta,
+        )
+    else:
+        og = await fetch_link_preview(winner.url)
+        post_id = await publisher.publish(
+            winner.post_content,
+            log_ref=winner.url,
+            prev_desc=og.get("prev_desc") or winner.description or None,
+            prev_img=og.get("prev_img"),
+            prev_src_link=og.get("prev_src_link") or winner.url,
+            prev_ttl=og.get("prev_ttl") or winner.title,
+        )
     published = post_id is not None
     logger.info(
-        "run_cycle: publish %s for %s (post_id=%s)",
+        "run_cycle: publish %s for %s (post_id=%s, %s)",
         "succeeded" if published else "FAILED",
         winner.url,
         post_id,
+        "headline card" if card_meta is not None else "link preview",
     )
 
     if published and not dry_run:
@@ -348,6 +421,7 @@ async def main() -> None:
     event_store = EventStore(config)
     event_verifier = EventVerifier(config)
     publisher = GettrPublisher(config, dry_run=dry_run)
+    uploader = MediaUploader(config, dry_run=dry_run)
     alerts = AlertNotifier(config)
     extractor = Extractor(config, alerts)
     writer = Writer(config)
@@ -366,7 +440,7 @@ async def main() -> None:
             published_this_cycle = False
             try:
                 published_this_cycle = await asyncio.wait_for(
-                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, extractor, writer, staleness_checker, caption_cache, dry_run),
+                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, extractor, writer, staleness_checker, caption_cache, dry_run),
                     timeout=config.cycle_timeout_seconds,
                 )
             except asyncio.TimeoutError:
