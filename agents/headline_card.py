@@ -317,15 +317,29 @@ def card_headline(post_content: str, fallback_title: str = "") -> str:
     """
     text = (post_content or "").strip()
     if not text:
-        return (fallback_title or "").strip()
+        # Only reachable if the Writer ever returns empty, which run_cycle
+        # already drops -- but a Google News title carries a " - Publisher"
+        # tail that must not end up set as the headline.
+        title = (fallback_title or "").strip()
+        tail = _google_news_publisher(title)
+        return title[: -(len(tail) + 3)].strip() if tail else title
     first = _CARD_SENTENCE_END.split(text, 1)[0].strip()
     # A single very long sentence reads better trimmed at a clause, and a trim
     # must never land inside a word. rsplit returns the whole string when the
     # separator is absent, so the comma branch has to check the comma is
     # actually there -- without that, a long comma-less headline came back cut
     # at "tooling t".
+    #
+    # A trim gets an ellipsis. DailyNews' version does not, and its cards read
+    # as though the sentence simply stopped: real China Breaks copy is longer
+    # than DailyNews' and five of the first eight cards rendered from live
+    # posts ended on a dangling "...amid heightened" / "...a move reflecting"
+    # (2026-09-21). The marker is the difference between a trimmed headline
+    # and a broken one.
     if len(first) > 160:
         head = first[:160]
         at_comma = head.rsplit(",", 1)[0] if "," in head else ""
-        first = at_comma if len(at_comma) > 80 else head.rsplit(" ", 1)[0]
-    return first.rstrip(" ,.") or text[:160]
+        first = (at_comma if len(at_comma) > 80 else head.rsplit(" ", 1)[0]).rstrip(" ,.;:") + "\u2026"
+    if not first.endswith("\u2026"):
+        first = first.rstrip(" ,.")
+    return first or text[:160]
