@@ -61,8 +61,13 @@ winner's own article URL right before publishing, so the post shows a
 real preview card instead of a bare appended URL with no card — see
 agents/gettr_publisher.py's docstring for the field names involved.
 
-Three sources are the exception (2026-09-21): a Google News, SCMP or
-ZeroHedge winner gets no URL appended and no link preview at all, and
+A winner is carded instead of linked for either of two reasons
+(2026-09-21). By editorial rule: Google News, SCMP and ZeroHedge never
+get a link. By quality: any other source whose Gettr preview would not
+actually render — agents/preview_gate.py, which caught 19% of real link
+posts, where the preview image was a tracking pixel, the outlet's logo,
+something that is not an image at all, or the title was not in English.
+A carded winner gets no URL appended and no link preview at all, and
 instead carries a 1:1 card this bot draws and uploads itself. The card
 is a split card (headline over the article's own photo) when
 agents/card_photo.py could get a usable photo — SCMP and ZeroHedge, in
@@ -107,6 +112,7 @@ from agents.card_photo import fetch_card_photo
 from agents.headline_card import card_attribution, make_split_card, make_text_card, uses_headline_card
 from agents.media_uploader import MediaUploader
 from agents.og_metadata import fetch_link_preview
+from agents.preview_gate import preview_fault
 from agents.posted_dedup_checker import content_for_embedding, find_publishable
 from agents.priority_ranker import PriorityRanker, log_publish_outcome
 from agents.staleness_checker import StalenessChecker
@@ -397,8 +403,22 @@ async def run_cycle(
     # and the card path needs prev_img as the source of the article's photo.
     og = await fetch_link_preview(winner.url)
 
+    # Two independent reasons to card. The editorial one is known at
+    # generation time, so those captions never had a URL appended; the quality
+    # one needs the OG fetch above, so those captions do have one and it is
+    # stripped here. agents/posted_dedup_checker.py's content_for_embedding()
+    # strips the same suffix, so dedup compares like for like either way.
+    by_rule = uses_headline_card(winner.author, winner.url)
+    fault = "" if by_rule else await preview_fault(og)
+    if fault:
+        logger.info("card: %s would show no preview (%s) — carding it instead",
+                    winner.url, fault)
+        suffix = f"\n\n{winner.url}"
+        if winner.post_content.endswith(suffix):
+            winner.post_content = winner.post_content[: -len(suffix)]
+
     card_meta = None
-    if uses_headline_card(winner.author, winner.url):
+    if by_rule or fault:
         card_meta = await _build_headline_card(winner, uploader, headline_writer, og)
         if card_meta is None:
             logger.warning(
@@ -426,7 +446,7 @@ async def run_cycle(
         "succeeded" if published else "FAILED",
         winner.url,
         post_id,
-        "card" if card_meta is not None else "link preview",
+        ("card by rule" if by_rule else f"card: {fault}") if card_meta is not None else "link preview",
     )
 
     if published and not dry_run:
