@@ -1,31 +1,43 @@
 # -*- coding: utf-8 -*-
-"""The 1:1 headline card posted in place of an article link.
+"""The 1:1 card posted in place of an article link.
 
-Three of this channel's sources are published as a card rather than as a link
-(see _CARD_SOURCE_PREFIXES below): Google News, SCMP and ZeroHedge. Caidan,
-2026-09-21. Google News is the clearest case and by volume the biggest one --
-its RSS items are news.google.com/rss/articles/CBMi... redirect URLs, which
-agents/og_metadata.py cannot read a preview out of, so every one of those posts
-went out as a wall of base64 with no card at all (26 of the last 100 candidates
-were this source; see the 2026-09-20 publish log).
+Three sources are published as a card rather than as a link (see
+_CARD_SOURCE_PREFIXES): Google News, SCMP and ZeroHedge. Google News is the
+biggest by volume -- 83% of card posts -- because its RSS items are
+news.google.com/rss/articles/CBMi... redirect URLs that agents/og_metadata.py
+cannot read a preview out of, so those posts used to go out as a wall of base64
+with no card at all.
 
-The drawing is ported from DailyNews' own headline card (VM-01,
-/home/caidan/DailyNews/agents/headline_card.py, redrawn there 2026-09-20),
-which is already 1080x1080 and already all-English. Two rules carry it and both
-are kept verbatim:
+There are two card shapes and which one is drawn depends on one thing only:
+whether agents/card_photo.py could get a real photo for this article.
 
-**The type fills its box.** _fit climbs until the block fits both the width and
-the height it has to live in, so a short headline is set large and a long one
-small, and neither leaves a hole.
+  make_split_card  -- headline on a white ground, the article's own photo in a
+                      band across the bottom. SCMP and ZeroHedge: both return a
+                      usable og:image on every article measured (20/20 and 6/6,
+                      2026-09-21).
+  make_text_card   -- headline only. Google News: 0/20, its og:image is a
+                      300x300 Google placeholder that the size gate rejects.
 
-**The colour comes from the category.** Six categories, six accents, matched on
-the headline's own words. The category list and its ordering are DailyNews'
-(measured there over 147 real posts); it is a China/US-desk list to begin with,
-so it transfers, but the distribution has not been re-measured on this
-channel's own output.
+Both share the masthead band, the category kicker and the accent colour, so the
+two shapes read as one channel alternating, not as two channels.
 
-Everything on the card is English -- the headline is the generated post copy,
-which this channel writes in English, and the chrome follows it.
+Design rules, all of them from the editors (2026-09-21):
+
+**The type does not fill the card.** An earlier draft sized the headline to fill
+whatever box it had and the result read as a wall: "不需要太大的字，全部塞满，
+不好看". The headline is capped at _MAX_SIZE and may take at most _MAX_LINES
+lines and _BOX_FILL of its box, so there is always deliberate space under it.
+
+**The headline is written, not excerpted.** It used to be the caption's first
+sentence, which meant the reader read the same sentence twice -- once on the
+card, truncated mid-clause, and again in the post underneath. agents/
+card_headline.py writes a real headline and an optional deck instead.
+
+**The deck is conditional.** It is drawn only when the headline left room for it
+("副标题看情况"), which in practice means most text cards get one and most
+photo cards do not.
+
+Everything on the card is English.
 """
 
 from __future__ import annotations
@@ -40,49 +52,72 @@ from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
 
-W, H = 1080, 1080
-PAPER = (250, 249, 246)
-INK = (20, 20, 22)
-RULE = (24, 24, 26)
-HAIRLINE = (200, 196, 190)
-MUTED = (110, 108, 104)
-MARGIN = 88
-MASTHEAD = "CHINA BREAKS"
-MAX_LINES = 6
+W = H = 1080
+MARGIN = 84
+BAND_H = 124
+PHOTO_H = 400
 
-# Category -> accent. Order matters: the first list to match wins, so a story
-# about a Chinese missile test is SECURITY rather than CHINA. That ordering is
-# an editorial call and lives here, in one place, to be changed in one place.
-# Without it CHINA would swallow nearly everything this channel publishes --
-# "china" is in almost every headline it writes.
+PAPER = (255, 255, 255)
+HEAD_INK = (22, 24, 27)
+DECK_INK = (85, 89, 95)
+SOURCE_INK = (140, 144, 152)
+BAND_INK = (255, 255, 255)
+
+MASTHEAD = "CHINA BREAKS"
+
+# Seven categories, cut down from nine at the editors' request ("可以压到七类,
+# 不需要那么多的分类"). The nine were drafted and measured on 200 real published
+# posts; the two smallest (THE PARTY 3%, SOCIETY 4%) merged into INSIDE CHINA,
+# and INFLUENCE (8.5%) merged into OVERSEAS, which is the same beat seen from
+# outside -- what the CCP does beyond its own borders, openly or not.
+#
+# First match wins, so the order is the editorial call: a PLA drill aimed at
+# Taiwan is TAIWAN, not MILITARY.
 _CATEGORIES: list[tuple[tuple[str, ...], str, tuple[int, int, int]]] = [
-    (("taiwan", "missile", "navy", "defense", "military", "weapon", "strike", "troops",
-      "warship", "nuclear", "army", "air force", "pentagon", "frigate", "drone"),
-     "SECURITY", (198, 118, 26)),
-    (("chip", "semiconductor", "ai ", "artificial intelligence", "tech", "6g", "5g",
-      "huawei", "quantum", "robot", "software", "satellite"),
-     "TECHNOLOGY", (74, 78, 158)),
-    (("econom", "trade", "tariff", "gdp", "market", "stock", "oil", "export", "import",
-      "yuan", "inflation", "investment", "currency", "bank"),
-     "ECONOMY", (22, 94, 90)),
-    (("china", "chinese", "beijing", "ccp", "xi jinping", "communist china", "pla "),
-     "CHINA", (180, 35, 46)),
-    (("trump", "washington", "white house", "congress", "u.s.", "united states", "american"),
-     "UNITED STATES", (27, 58, 107)),
+    (("taiwan", "taipei", "taiwanese", "cross-strait", "cross-straits", "kuomintang", "kmt",
+      "dpp", "democratic progressive", "mainland affairs council", "william lai", "lai ching"),
+     "TAIWAN", (206, 44, 50)),
+
+    (("president trump", "trump administration", "white house", "washington", "state visit",
+      "state dinner", "u.s. congress", "u.s. lawmakers", "u.s. senate", "capitol hill",
+      "bipartisan", "state department", "secretary of state", "treasury secretary",
+      "u.s. trade representative", "ustr", "oval office", "xi-trump", "trump-xi"),
+     "WASHINGTON", (72, 86, 196)),
+
+    (("pla ", "military", "navy", "naval", "warship", "vessel", "aircraft carrier", "missile",
+      "fighter jet", "stealth", "drills", "war games", "troops", "coast guard", "defense minist",
+      "defence", "pentagon", "nuclear", "submarine", "incursion", "no-fly", "armed forces",
+      "frigate", "combat", "arms sale", "aukus"),
+     "MILITARY", (214, 112, 24)),
+
+    (("purge", "expelled", "corruption", "graft", "discipline inspection", "ccdi", "crackdown",
+      "censor", "politburo", "plenary session", "party congress", "judicial", "imprisoned",
+      "human rights", "dissident", "repress", "detention", "re-education", "anti-corruption",
+      "education", "school", "student", "teenager", "food safety", "hospital", "public health",
+      "netizen", "social media", "residents", "villag", "birth rate", "elderly", "welfare"),
+     "INSIDE CHINA", (124, 38, 96)),
+
+    (("chip", "semiconductor", "lithography", "artificial intelligence", " ai ", " ai,", " ai-",
+      "ai deal", "ai chips", "ai race", "ai safety", "robot", "satellite", "space race", "lunar",
+      "quantum", "huawei", "byd", "electric vehicle", "drone", "fusion", "telecom", "5g", "6g",
+      "algorithm", "data center", "launch"),
+     "TECHNOLOGY", (40, 132, 196)),
+
+    (("econom", "trade", "tariff", "export", "import", "gdp", "yuan", "debt", "property",
+      "real estate", "investment", "invest", "stock", "bank", "currency", "supply chain",
+      "rare earth", "commerce", "manufactur", "steel", "sanction", "market", "subsid", "contract"),
+     "ECONOMY", (22, 138, 118)),
 ]
-_DEFAULT_CATEGORY = ("WORLD", (90, 92, 98))
+# The default is a real beat for this channel, not a leftover bucket: the CCP in
+# Pakistan, Brazil, Brunei, Panama, Peru, plus espionage, united-front work and
+# propaganda abroad.
+_DEFAULT_CATEGORY = ("OVERSEAS", (150, 96, 40))
 
 _FONTS = {
-    "serif_bold": [("/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc", 2),
-                   ("/System/Library/Fonts/Supplemental/Songti.ttc", 0)],
-    "serif": [("/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc", 2),
-              ("/System/Library/Fonts/Supplemental/Songti.ttc", 0)],
     "sans_bold": [("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", 2),
-                  ("/System/Library/AssetsV2/com_apple_MobileAsset_Font8/"
-                   "4a418d1fa4860652a3241e8ee457806c8557fc64.asset/AssetData/Yuanti.ttc", 2)],
+                  ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", 0)],
     "sans": [("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 2),
-             ("/System/Library/AssetsV2/com_apple_MobileAsset_Font8/"
-              "4a418d1fa4860652a3241e8ee457806c8557fc64.asset/AssetData/Yuanti.ttc", 2)],
+             ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", 0)],
 }
 
 
@@ -116,7 +151,10 @@ def _normalize_punctuation(text: str) -> str:
 
 
 def category_of(title: str) -> tuple[str, tuple[int, int, int]]:
-    low = " " + title.lower()
+    """Matched on the headline alone, never headline + deck: the deck names
+    secondary actors ("ahead of the Trump-Xi summit") and a rare-earth export
+    story came out tagged WASHINGTON because of one."""
+    low = " " + (title or "").lower() + " "
     for keys, label, colour in _CATEGORIES:
         if any(k in low for k in keys):
             return label, colour
@@ -151,104 +189,162 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, f, max_width: int) -> list[str]:
     return lines
 
 
-# How much of the text box the headline may actually occupy, and how large it
-# may be set. Filling the box read as a wall of type on DailyNews: a six-line
-# headline came out at 87px using 678 of 694 available pixels, edge to edge
-# with nothing to breathe. A long headline is bounded by the height, a short
-# one by the ceiling, so both numbers are needed -- one alone moves only half
-# the cases.
-_BOX_FILL = 0.80
-_MAX_SIZE = 120
+# Deliberate space, not a filled box -- see this module's docstring. _BOX_FILL
+# is the share of its box the headline block may occupy; _MAX_SIZE and
+# _MAX_LINES cap it from the other direction so a four-word headline does not
+# blow up to fill the card either.
+_BOX_FILL = 0.74
+_MAX_SIZE = 88
+_MAX_SIZE_WITH_PHOTO = 76
+_MIN_SIZE = 46
+_MAX_LINES = 4
+_LEAD = 1.15
+
+_DECK_SIZE = 35
+_DECK_LEAD = 1.34
+_DECK_MAX_LINES = 2
+_DECK_GAP = 54          # between the headline's last baseline box and the deck
+_DECK_TAIL = 44         # space the deck needs under itself before the rule
 
 
-def _fit(draw: ImageDraw.ImageDraw, text: str, max_width: int, max_height: int,
-         lead: float = 1.30, max_size: int = _MAX_SIZE, min_size: int = 40):
-    """Largest size whose block fits both the width and the height it has.
-
-    Sizing on width alone is what stranded a four-word headline in the middle of
-    the canvas: it fit at 76px and never grew.
-    """
+def _fit(draw, text, max_width, max_height, max_size):
+    """Largest size whose block fits the width, the height and _MAX_LINES."""
     size = max_size
-    while size >= min_size:
-        f = _font("serif_bold", size)
+    while size >= _MIN_SIZE:
+        f = _font("sans_bold", size)
         lines = _wrap(draw, text, f, max_width)
-        if len(lines) <= MAX_LINES and round(size * lead) * len(lines) <= max_height:
+        if len(lines) <= _MAX_LINES and round(size * _LEAD) * len(lines) <= max_height:
             return lines, f
-        size -= 3
+        size -= 2
 
-    f = _font("serif_bold", min_size)
-    lines = _wrap(draw, text, f, max_width)
-    kept = lines[:MAX_LINES]
-    if kept:
-        last = kept[-1]
-        kept[-1] = (last.rsplit(" ", 1)[0] if " " in last else last) + "…"
-    logger.warning("Headline card: title too long even at %dpx, trimmed to %d lines: %r",
-                   min_size, MAX_LINES, text[:80])
-    return kept, f
+    f = _font("sans_bold", _MIN_SIZE)
+    lines = _wrap(draw, text, f, max_width)[:_MAX_LINES]
+    if lines:
+        last = lines[-1]
+        lines[-1] = (last.rsplit(" ", 1)[0] if " " in last else last) + "…"
+    logger.warning("card: headline too long even at %dpx, trimmed to %d lines: %r",
+                   _MIN_SIZE, _MAX_LINES, text[:90])
+    return lines, f
 
 
-def make_plain_card(title: str, out_path: str, attribution: str = "") -> None:
-    """The card. A broadsheet front page: masthead, rule, a category kicker in
-    that category's colour, the headline set in a serif, and the source under a
-    hairline."""
-    label, accent = category_of(title)
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-
-    d.rectangle([0, 0, W, 10], fill=RULE)
-    d.text((MARGIN, 62), MASTHEAD, font=_font("serif_bold", 40), fill=RULE)
-
+def _chrome(d: ImageDraw.ImageDraw, label: str, accent) -> None:
+    """Masthead band, date and category kicker — identical on both shapes."""
+    d.rectangle([0, 0, W, BAND_H], fill=accent)
+    x = MARGIN
+    mast = _font("sans_bold", 38)
+    for ch in MASTHEAD:
+        d.text((x, 40), ch, font=mast, fill=BAND_INK)
+        x += d.textlength(ch, font=mast) + 5
     date_text = datetime.now(timezone.utc).strftime("%B %-d, %Y")
-    date_font = _font("sans", 26)
-    d.text((W - MARGIN - d.textlength(date_text, font=date_font), 74),
-           date_text, font=date_font, fill=MUTED)
-    d.line([MARGIN, 132, W - MARGIN, 132], fill=RULE, width=3)
+    date_font = _font("sans", 25)
+    d.text((W - MARGIN - d.textlength(date_text, font=date_font), 48),
+           date_text, font=date_font, fill=BAND_INK)
 
-    d.rectangle([MARGIN, 168, MARGIN + 10, 200], fill=accent)
-    d.text((MARGIN + 26, 166), label, font=_font("sans_bold", 28), fill=accent)
+    d.rectangle([MARGIN, 176, MARGIN + 13, 201], fill=accent)
+    x = MARGIN + 30
+    kick = _font("sans_bold", 25)
+    for ch in label:
+        d.text((x, 173), ch, font=kick, fill=accent)
+        x += d.textlength(ch, font=kick) + 4
 
-    top, bottom = 214, H - 132
-    lines, f = _fit(d, title, W - MARGIN * 2, round((bottom - top - 40) * _BOX_FILL))
-    line_h = round(f.size * 1.30)
-    y = top + (bottom - top - line_h * len(lines)) // 2
+
+def _draw_body(d: ImageDraw.ImageDraw, headline: str, deck: str, floor: int,
+               accent, max_size: int) -> None:
+    """Headline, then the deck if what is left under the headline can hold it
+    without crowding, then the accent rule. `floor` is the y the body may not
+    cross — the source line on a text card, the photo band on a split card."""
+    top = 244
+    box = W - MARGIN * 2
+    lines, f = _fit(d, headline, box, round((floor - top) * _BOX_FILL), max_size)
+    line_h = round(f.size * _LEAD)
+    y = top
     for line in lines:
-        d.text((MARGIN, y), line, font=f, fill=INK)
+        d.text((MARGIN, y), line, font=f, fill=HEAD_INK)
         y += line_h
 
-    d.line([MARGIN, H - 132, W - MARGIN, H - 132], fill=HAIRLINE, width=2)
+    if deck:
+        deck_font = _font("sans", _DECK_SIZE)
+        deck_lines = _wrap(d, deck, deck_font, box)
+        deck_h = round(_DECK_SIZE * _DECK_LEAD) * len(deck_lines)
+        fits = (len(deck_lines) <= _DECK_MAX_LINES
+                and y + _DECK_GAP + deck_h + _DECK_TAIL <= floor)
+        if fits:
+            y += _DECK_GAP
+            for line in deck_lines:
+                d.text((MARGIN, y), line, font=deck_font, fill=DECK_INK)
+                y += round(_DECK_SIZE * _DECK_LEAD)
+        else:
+            logger.info("card: deck dropped, no room under the headline: %r", deck[:60])
+
+    d.rectangle([MARGIN, y + 30, MARGIN + 132, y + 38], fill=accent)
+
+
+def make_text_card(headline: str, out_path: str, deck: str = "", attribution: str = "") -> None:
+    """No photo: the type is the whole card."""
+    label, accent = category_of(headline)
+    img = Image.new("RGB", (W, H), PAPER)
+    d = ImageDraw.Draw(img)
+    _chrome(d, label, accent)
+    _draw_body(d, headline, deck, H - 150, accent, _MAX_SIZE)
     if attribution:
-        d.text((MARGIN, H - 106), attribution, font=_font("serif", 26), fill=MUTED)
-    d.rectangle([0, H - 10, W, H], fill=accent)
+        d.text((MARGIN, H - 104), attribution, font=_font("sans", 25), fill=SOURCE_INK)
+    img.save(out_path)
+
+
+def make_split_card(headline: str, photo_bytes: bytes, out_path: str,
+                    deck: str = "", attribution: str = "") -> None:
+    """Headline on white, the article's photo in a band across the bottom.
+
+    The band is 2.7:1, close to the 1.9:1 a news site's og:image actually is, so
+    the photo is cropped lightly and never upscaled much. A full-bleed square
+    treatment was tried first and rejected: cropping a 1200x630 SCMP frame to
+    1:1 cut Xi Jinping out of a Xi-Trump handshake entirely.
+    """
+    import io
+
+    label, accent = category_of(headline)
+    img = Image.new("RGB", (W, H), PAPER)
+    d = ImageDraw.Draw(img)
+    _chrome(d, label, accent)
+    _draw_body(d, headline, deck, H - PHOTO_H - 56, accent, _MAX_SIZE_WITH_PHOTO)
+    if attribution:
+        d.text((MARGIN, H - PHOTO_H - 54), attribution, font=_font("sans", 25), fill=SOURCE_INK)
+
+    photo = Image.open(io.BytesIO(photo_bytes)).convert("RGB")
+    scale = max(W / photo.width, PHOTO_H / photo.height)
+    photo = photo.resize((max(W, round(photo.width * scale)),
+                          max(PHOTO_H, round(photo.height * scale))), Image.LANCZOS)
+    left, top = (photo.width - W) // 2, (photo.height - PHOTO_H) // 2
+    img.paste(photo.crop((left, top, left + W, top + PHOTO_H)), (0, H - PHOTO_H))
+    d.rectangle([0, H - PHOTO_H - 5, W, H - PHOTO_H], fill=accent)
     img.save(out_path)
 
 
 # ---------------------------------------------------------------------------
-# Which posts get a card, and what the card says under the hairline.
+# Which posts get a card, and how the source is named on it.
 # ---------------------------------------------------------------------------
 
-# Matched against a candidate's `author` -- core/notion_candidates.py writes
-# the RSS source's Notion Name into that column, so these are the source
-# table's own names, lowercased and matched as prefixes. "scmp" covers the
-# thirteen separate SCMP section feeds ("scmp china politics", "scmp business",
-# ...) without listing each one; a new SCMP section feed is picked up for free.
+# Matched against a candidate's `author` -- core/notion_candidates.py writes the
+# RSS source's Notion Name into that column, so these are the source table's own
+# names, lowercased and matched as prefixes. "scmp" covers the thirteen separate
+# SCMP section feeds without listing each one.
 _CARD_SOURCE_PREFIXES = ("google news", "scmp", "zero hedge", "zerohedge")
 
 # The same three sources by article domain, as a backstop for a renamed or
-# newly-added feed row. Checked against the registrable tail of the host, so
-# "www.scmp.com" and "cms.zerohedge.com" both match.
+# newly-added feed row. This also catches a news.google.com link arriving from
+# some other aggregator feed (china.buzzing.cc republishes them), which is
+# correct: the problem is a URL that has no readable preview, not which feed it
+# came in on.
 _CARD_DOMAINS = ("news.google.com", "scmp.com", "zerohedge.com")
 
-# What goes under the hairline. Keyed by the same source-name prefix.
 _SOURCE_DISPLAY_NAME = {
     "scmp": "South China Morning Post",
     "zero hedge": "ZeroHedge",
     "zerohedge": "ZeroHedge",
-    "google news": "Google News",
 }
 _DOMAIN_DISPLAY_NAME = {
     "scmp.com": "South China Morning Post",
     "zerohedge.com": "ZeroHedge",
-    "news.google.com": "Google News",
 }
 
 
@@ -266,10 +362,9 @@ def uses_headline_card(author: str, url: str) -> bool:
 
 
 # A Google News RSS title is "Headline - Publisher", so the real outlet is
-# recoverable and is what belongs on the card -- "Google News" is an aggregator,
-# not a source. Guarded on both ends: the tail must be short and must not read
-# like the rest of a sentence, or a headline that simply contains a dash
-# ("Trump - in Beijing this week - said") would be mistaken for an attribution.
+# recoverable and is what belongs on the card. Guarded on both ends: the tail
+# must be short and must not read like the rest of a sentence, or a headline
+# that merely contains a dash would be mistaken for an attribution.
 _GOOGLE_NEWS_TAIL = re.compile(r"\s+-\s+([^-]{2,40})$")
 
 
@@ -282,64 +377,19 @@ def _google_news_publisher(title: str) -> str:
 
 
 def card_attribution(author: str, url: str, title: str) -> str:
-    """The "(Source: ...)" line, or "" when the source can't be named."""
+    """The "(Source: ...)" line, or "" when the real outlet can't be named.
+
+    Never "Google News" (editors, 2026-09-21: "域名应该是那篇报道哪家媒体的名字,
+    不能全是Google news"). Google News is an aggregator, not the reporter — when
+    its title carries no " - Publisher" tail to recover the real outlet from,
+    the line is left off the card entirely rather than crediting the aggregator.
+    """
     name = (author or "").strip().lower()
-    display = ""
     for prefix, label in _SOURCE_DISPLAY_NAME.items():
         if name.startswith(prefix):
-            display = label
-            break
-    if not display:
-        for domain, label in _DOMAIN_DISPLAY_NAME.items():
-            if _host_matches(url or "", domain):
-                display = label
-                break
-    if display == "Google News":
-        display = _google_news_publisher(title) or display
-    return f"(Source: {display})" if display else ""
-
-
-# A sentence end, not an abbreviation. Two guards, both needed: the next word
-# must start with a capital (rules out "U.S. export"), and the character before
-# the period must not itself be a capital (rules out "U.S. Congress", where the
-# next word IS capitalised). Without them the card headline for a chip-export
-# story came back cut at "sweeping U.S".
-_CARD_SENTENCE_END = re.compile(r'(?<![A-Z]\.)(?<=[.!?])\s+(?=[A-Z"“])')
-
-
-def card_headline(post_content: str, fallback_title: str = "") -> str:
-    """The first sentence of the post, or the title if there isn't one.
-
-    The post copy, not the source title: it is already English, already in this
-    channel's voice, and already the thing being published. A Google News title
-    still carries its " - Publisher" tail, and an SCMP one is written for
-    SCMP's readers, not this channel's.
-    """
-    text = (post_content or "").strip()
-    if not text:
-        # Only reachable if the Writer ever returns empty, which run_cycle
-        # already drops -- but a Google News title carries a " - Publisher"
-        # tail that must not end up set as the headline.
-        title = (fallback_title or "").strip()
-        tail = _google_news_publisher(title)
-        return title[: -(len(tail) + 3)].strip() if tail else title
-    first = _CARD_SENTENCE_END.split(text, 1)[0].strip()
-    # A single very long sentence reads better trimmed at a clause, and a trim
-    # must never land inside a word. rsplit returns the whole string when the
-    # separator is absent, so the comma branch has to check the comma is
-    # actually there -- without that, a long comma-less headline came back cut
-    # at "tooling t".
-    #
-    # A trim gets an ellipsis. DailyNews' version does not, and its cards read
-    # as though the sentence simply stopped: real China Breaks copy is longer
-    # than DailyNews' and five of the first eight cards rendered from live
-    # posts ended on a dangling "...amid heightened" / "...a move reflecting"
-    # (2026-09-21). The marker is the difference between a trimmed headline
-    # and a broken one.
-    if len(first) > 160:
-        head = first[:160]
-        at_comma = head.rsplit(",", 1)[0] if "," in head else ""
-        first = (at_comma if len(at_comma) > 80 else head.rsplit(" ", 1)[0]).rstrip(" ,.;:") + "\u2026"
-    if not first.endswith("\u2026"):
-        first = first.rstrip(" ,.")
-    return first or text[:160]
+            return f"(Source: {label})"
+    for domain, label in _DOMAIN_DISPLAY_NAME.items():
+        if _host_matches(url or "", domain):
+            return f"(Source: {label})"
+    publisher = _google_news_publisher(title)
+    return f"(Source: {publisher})" if publisher else ""

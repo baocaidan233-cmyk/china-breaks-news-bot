@@ -63,9 +63,14 @@ agents/gettr_publisher.py's docstring for the field names involved.
 
 Three sources are the exception (2026-09-21): a Google News, SCMP or
 ZeroHedge winner gets no URL appended and no link preview at all, and
-instead carries a 1:1 headline card this bot draws and uploads itself —
-see agents/headline_card.py for which sources and why, and _publish()
-below for the fallback when the card can't be made.
+instead carries a 1:1 card this bot draws and uploads itself. The card
+is a split card (headline over the article's own photo) when
+agents/card_photo.py could get a usable photo — SCMP and ZeroHedge, in
+practice — and a text card when it could not, which is every Google
+News item. Its headline is written by agents/card_headline.py rather
+than excerpted from the caption. See agents/headline_card.py for which
+sources and why, and _build_headline_card() below for the fallback when
+the card can't be made at all.
 
 The posted-dedup embedding (both the check in find_publishable and the
 final write below) uses agents/posted_dedup_checker.py's
@@ -86,6 +91,7 @@ import asyncio
 import logging
 import os
 import random
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -96,7 +102,9 @@ from agents.candidate_selector import select_batch
 from agents.embedder import Embedder
 from agents.extractor import Extractor
 from agents.gettr_publisher import GettrPublisher
-from agents.headline_card import card_attribution, card_headline, make_plain_card, uses_headline_card
+from agents.card_headline import CardHeadlineWriter
+from agents.card_photo import fetch_card_photo
+from agents.headline_card import card_attribution, make_split_card, make_text_card, uses_headline_card
 from agents.media_uploader import MediaUploader
 from agents.og_metadata import fetch_link_preview
 from agents.posted_dedup_checker import content_for_embedding, find_publishable
@@ -141,25 +149,57 @@ def _build_background(matched: dict | None) -> str:
     return " ".join(parts)
 
 
-async def _build_headline_card(winner, uploader: MediaUploader) -> dict | None:
+_CARD_SENTENCE_END = re.compile(r'(?<![A-Z]\.)(?<=[.!?])\s+(?=[A-Z"\u201c])')
+
+
+def _caption_first_sentence(caption: str) -> str:
+    """The pre-2026-09-21 card headline, kept only as the fallback for when
+    agents/card_headline.py fails or returns something unusable. Trimmed at a
+    clause rather than mid-word, with an ellipsis so a trimmed headline reads
+    as trimmed and not as broken."""
+    text = (caption or "").strip()
+    if not text:
+        return ""
+    first = _CARD_SENTENCE_END.split(text, 1)[0].strip()
+    if len(first) > 150:
+        head = first[:150]
+        at_comma = head.rsplit(",", 1)[0] if "," in head else ""
+        first = (at_comma if len(at_comma) > 80 else head.rsplit(" ", 1)[0]).rstrip(" ,.;:") + "\u2026"
+    return first
+
+
+async def _build_headline_card(winner, uploader: MediaUploader,
+                               headline_writer: CardHeadlineWriter, og: dict) -> dict | None:
     """Draws the winner's 1:1 card and uploads it, returning Gettr media
     metadata — or None if anything went wrong, in which case run_cycle falls
-    back to the ordinary link post rather than dropping the publish. Drawing
-    is PIL, which is blocking, so it runs in the default executor."""
-    headline = card_headline(winner.post_content, winner.title)
+    back to the ordinary link post rather than dropping the publish.
+
+    Two shapes: a split card when the article has a usable photo, a text card
+    when it does not. Drawing is PIL, which is blocking, so it runs in the
+    default executor."""
+    headline, deck = await headline_writer.write(winner.post_content)
+    if not headline:
+        headline, deck = _caption_first_sentence(winner.post_content), ""
+        logger.info("card: headline writer gave nothing, falling back to the caption for %s",
+                    winner.url)
     if not headline:
         return None
     attribution = card_attribution(winner.author, winner.url, winner.title)
+    photo = await fetch_card_photo(og.get("prev_img") or "", winner.url)
 
     path = f"/tmp/cb_card_{winner.url_hash or winner.page_id}.png"
     try:
-        await asyncio.get_running_loop().run_in_executor(
-            None, make_plain_card, headline, path, attribution,
-        )
+        loop = asyncio.get_running_loop()
+        if photo:
+            await loop.run_in_executor(
+                None, make_split_card, headline, photo, path, deck, attribution)
+        else:
+            await loop.run_in_executor(
+                None, make_text_card, headline, path, deck, attribution)
         with open(path, "rb") as fh:
             blob = fh.read()
     except Exception:
-        logger.exception("headline card: render failed for %s", winner.url)
+        logger.exception("card: render failed for %s", winner.url)
         return None
     finally:
         try:
@@ -169,9 +209,11 @@ async def _build_headline_card(winner, uploader: MediaUploader) -> dict | None:
 
     meta = await uploader.upload_png(blob, filename=os.path.basename(path))
     if meta is None:
-        logger.warning("headline card: upload failed for %s", winner.url)
+        logger.warning("card: upload failed for %s", winner.url)
         return None
-    logger.info("headline card: made for %s (%d bytes) — %.70s", winner.url, len(blob), headline)
+    logger.info("card: %s made for %s (%d bytes) — %.80s%s",
+                "split" if photo else "text", winner.url, len(blob), headline,
+                f" / deck: {deck[:60]}" if deck else "")
     return meta
 
 
@@ -184,6 +226,7 @@ async def run_cycle(
     event_verifier: EventVerifier,
     publisher: GettrPublisher,
     uploader: MediaUploader,
+    headline_writer: CardHeadlineWriter,
     extractor: Extractor,
     writer: Writer,
     staleness_checker: StalenessChecker,
@@ -350,12 +393,16 @@ async def run_cycle(
     # URL that the generation loop above deliberately left off, so a failed
     # card degrades to today's post rather than to a post with no way to reach
     # the article.
+    # One OG fetch serves both paths: the link post needs its preview fields,
+    # and the card path needs prev_img as the source of the article's photo.
+    og = await fetch_link_preview(winner.url)
+
     card_meta = None
     if uses_headline_card(winner.author, winner.url):
-        card_meta = await _build_headline_card(winner, uploader)
+        card_meta = await _build_headline_card(winner, uploader, headline_writer, og)
         if card_meta is None:
             logger.warning(
-                "headline card: falling back to a link post for %s (source=%s)",
+                "card: falling back to a link post for %s (source=%s)",
                 winner.url, winner.author,
             )
             winner.post_content = f"{winner.post_content}\n\n{winner.url}"
@@ -365,7 +412,6 @@ async def run_cycle(
             winner.post_content, log_ref=winner.url, media=card_meta,
         )
     else:
-        og = await fetch_link_preview(winner.url)
         post_id = await publisher.publish(
             winner.post_content,
             log_ref=winner.url,
@@ -380,7 +426,7 @@ async def run_cycle(
         "succeeded" if published else "FAILED",
         winner.url,
         post_id,
-        "headline card" if card_meta is not None else "link preview",
+        "card" if card_meta is not None else "link preview",
     )
 
     if published and not dry_run:
@@ -422,6 +468,7 @@ async def main() -> None:
     event_verifier = EventVerifier(config)
     publisher = GettrPublisher(config, dry_run=dry_run)
     uploader = MediaUploader(config, dry_run=dry_run)
+    headline_writer = CardHeadlineWriter(config)
     alerts = AlertNotifier(config)
     extractor = Extractor(config, alerts)
     writer = Writer(config)
@@ -440,7 +487,7 @@ async def main() -> None:
             published_this_cycle = False
             try:
                 published_this_cycle = await asyncio.wait_for(
-                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, extractor, writer, staleness_checker, caption_cache, dry_run),
+                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, headline_writer, extractor, writer, staleness_checker, caption_cache, dry_run),
                     timeout=config.cycle_timeout_seconds,
                 )
             except asyncio.TimeoutError:
