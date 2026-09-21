@@ -56,12 +56,33 @@ W = H = 1080
 MARGIN = 84
 BAND_H = 124
 PHOTO_H = 400
+# The text card's footer block, where the split card has its photo. Without it
+# the two shapes had different proportions and the text card trailed off into
+# 300px of nothing with the source line orphaned at the very bottom
+# (p43wdfo86dd, 2026-09-21: "文字在上，下面是空的，比例不和谐").
+#
+# Its height is not fixed: the footer starts a fixed gap under the text and
+# runs to the bottom edge, so it ABSORBS whatever slack the headline left
+# instead of leaving a hole above itself. A fixed-height footer was tried
+# first and just moved the hole up by 268px. The clamps keep it from becoming
+# either a sliver or most of the card.
+FOOTER_MIN = 220
+FOOTER_MAX = 430
+FOOTER_GAP = 52          # between the end of the text group and the footer
+FOOTER_TEXT_INSET = 46   # source line, down from the footer's top edge
 
 PAPER = (255, 255, 255)
 HEAD_INK = (22, 24, 27)
 DECK_INK = (85, 89, 95)
 SOURCE_INK = (140, 144, 152)
+FOOTER_INK = (112, 116, 124)
 BAND_INK = (255, 255, 255)
+
+
+def _tint(accent: tuple[int, int, int], strength: float = 0.09) -> tuple[int, int, int]:
+    """The category colour washed into white — the footer reads as part of the
+    card's colour scheme without competing with the masthead band."""
+    return tuple(round(255 + (c - 255) * strength) for c in accent)
 
 MASTHEAD = "CHINA BREAKS"
 
@@ -114,7 +135,8 @@ _CATEGORIES: list[tuple[tuple[str, ...], str, tuple[int, int, int]]] = [
     (("econom", "trade", "tariff", "export", "import", "gdp", "yuan", "debt", "property",
       "real estate", "investment", "invest", "stock", "bank", "currency", "supply chain",
       "rare earth", "commerce", "manufactur", "steel", "sanction", "market", "subsid", "contract",
-      "mining", "acquisition", "state-owned"),
+      "mining", "acquisition", "state-owned",
+      "airline", "flight", "carrier", "aviation", "route", "shipping", "port"),
      "ECONOMY", (22, 138, 118)),
 ]
 # The default is a real beat for this channel, not a leftover bucket: the CCP in
@@ -202,7 +224,7 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, f, max_width: int) -> list[str]:
 # is the share of its box the headline block may occupy; _MAX_SIZE and
 # _MAX_LINES cap it from the other direction so a four-word headline does not
 # blow up to fill the card either.
-_BOX_FILL = 0.74
+_BOX_FILL = 0.86
 _MAX_SIZE = 88
 _MAX_SIZE_WITH_PHOTO = 76
 _MIN_SIZE = 46
@@ -258,10 +280,11 @@ def _chrome(d: ImageDraw.ImageDraw, label: str, accent) -> None:
 
 
 def _draw_body(d: ImageDraw.ImageDraw, headline: str, deck: str, floor: int,
-               accent, max_size: int) -> None:
+               accent, max_size: int) -> int:
     """Headline, then the deck if what is left under the headline can hold it
     without crowding, then the accent rule. `floor` is the y the body may not
-    cross — the source line on a text card, the photo band on a split card."""
+    cross — the footer block on a text card, the photo band on a split card.
+    Returns the y the drawn group ends at, which is what sizes the footer."""
     top = 244
     box = W - MARGIN * 2
     lines, f = _fit(d, headline, box, round((floor - top) * _BOX_FILL), max_size)
@@ -286,17 +309,23 @@ def _draw_body(d: ImageDraw.ImageDraw, headline: str, deck: str, floor: int,
             logger.info("card: deck dropped, no room under the headline: %r", deck[:60])
 
     d.rectangle([MARGIN, y + 30, MARGIN + 132, y + 38], fill=accent)
+    return y + 38
 
 
 def make_text_card(headline: str, out_path: str, deck: str = "", attribution: str = "") -> None:
-    """No photo: the type is the whole card."""
+    """No photo: the type carries the card, over a tinted footer block."""
     label, accent = category_of(headline)
     img = Image.new("RGB", (W, H), PAPER)
     d = ImageDraw.Draw(img)
     _chrome(d, label, accent)
-    _draw_body(d, headline, deck, H - 150, accent, _MAX_SIZE)
+    end = _draw_body(d, headline, deck, H - FOOTER_MIN - 24, accent, _MAX_SIZE)
+
+    footer_top = min(H - FOOTER_MIN, max(end + FOOTER_GAP, H - FOOTER_MAX))
+    d.rectangle([0, footer_top, W, H], fill=_tint(accent))
+    d.rectangle([0, footer_top - 5, W, footer_top], fill=accent)
     if attribution:
-        d.text((MARGIN, H - 104), attribution, font=_font("sans", 25), fill=SOURCE_INK)
+        d.text((MARGIN, footer_top + FOOTER_TEXT_INSET), attribution,
+               font=_font("sans", 26), fill=FOOTER_INK)
     img.save(out_path)
 
 
