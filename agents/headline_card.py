@@ -94,18 +94,27 @@ _CATEGORIES: list[tuple[tuple[str, ...], str, tuple[int, int, int]]] = [
       "censor", "politburo", "plenary session", "party congress", "judicial", "imprisoned",
       "human rights", "dissident", "repress", "detention", "re-education", "anti-corruption",
       "education", "school", "student", "teenager", "food safety", "hospital", "public health",
-      "netizen", "social media", "residents", "villag", "birth rate", "elderly", "welfare"),
+      "netizen", "social media", "residents", "villag", "birth rate", "elderly", "welfare",
+      "pollution", "greenhouse", "emitter", "emissions"),
      "INSIDE CHINA", (124, 38, 96)),
 
+    # The space cluster was missing on the first live run: "The China Academy
+    # of Space Technology develops navigation system" fell all the way through
+    # to OVERSEAS because only "space race" and "lunar" were listed. MILITARY
+    # is matched first, so "aircraft carrier" and "fighter jet" still land
+    # there rather than here.
     (("chip", "semiconductor", "lithography", "artificial intelligence", " ai ", " ai,", " ai-",
-      "ai deal", "ai chips", "ai race", "ai safety", "robot", "satellite", "space race", "lunar",
+      "ai deal", "ai chips", "ai race", "ai safety", "robot", "satellite", "lunar",
       "quantum", "huawei", "byd", "electric vehicle", "drone", "fusion", "telecom", "5g", "6g",
-      "algorithm", "data center", "launch"),
+      "algorithm", "data center", "launch",
+      " space", "spacecraft", "aerospace", "orbit", "probe", "rocket", "navigation",
+      "aircraft", "supersonic", "moon", "mars", "jupiter", "astronaut"),
      "TECHNOLOGY", (40, 132, 196)),
 
     (("econom", "trade", "tariff", "export", "import", "gdp", "yuan", "debt", "property",
       "real estate", "investment", "invest", "stock", "bank", "currency", "supply chain",
-      "rare earth", "commerce", "manufactur", "steel", "sanction", "market", "subsid", "contract"),
+      "rare earth", "commerce", "manufactur", "steel", "sanction", "market", "subsid", "contract",
+      "mining", "acquisition", "state-owned"),
      "ECONOMY", (22, 138, 118)),
 ]
 # The default is a real beat for this channel, not a leftover bucket: the CCP in
