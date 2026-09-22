@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agents.embedder import Embedder
+from agents.us_stake import has_us_stake
 from core.config import AppConfig
 from core.hashing import cosine_similarity
 from core.models import PublishCandidate
@@ -32,6 +33,14 @@ _TRENDING_SIM_LOW = 0.5
 # it. Ported from AM1ST's own value — a generic curve-shape constant, not
 # content-calibrated, so no adaptation needed.
 _FRESHNESS_DECAY_K = 1.5
+
+# American-stake bonus, 2026-09-22 — see agents/us_stake.py for the measurement
+# behind it. Sized to one trending band (trending_bonus is 0/1/2) rather than
+# two: the trending signal is a live external read, this one is a static
+# property of the copy, and at p≈0.06 on n=99 it has not earned equal weight.
+# A bonus, never a gate: CCP-internal and third-country stories are this
+# channel's own beat and still rank on their own llm_score.
+_US_STAKE_BONUS = 1.0
 
 
 def _log_decision(record: dict) -> None:
@@ -146,8 +155,11 @@ class PriorityRanker:
                 elif best_sim >= _TRENDING_SIM_LOW:
                     trending_bonus = 1.0
 
+            us_stake = has_us_stake(c.post_content or c.title)
+            us_stake_bonus = _US_STAKE_BONUS if us_stake else 0.0
+
             freshness_penalty = _FRESHNESS_DECAY_K * math.log(1 + hours_since_update)
-            priority_score = c.llm_score + trending_bonus - freshness_penalty
+            priority_score = c.llm_score + trending_bonus + us_stake_bonus - freshness_penalty
 
             _log_decision({
                 "page_id": c.page_id,
@@ -157,6 +169,8 @@ class PriorityRanker:
                 "heat_score": c.heat_score,
                 "trending_max_similarity": round(best_sim, 4),
                 "trending_bonus": trending_bonus,
+                "us_stake": us_stake,
+                "us_stake_bonus": us_stake_bonus,
                 "hours_since_update": round(hours_since_update, 2),
                 "freshness_penalty": round(freshness_penalty, 3),
                 "priority_score": round(priority_score, 3),
