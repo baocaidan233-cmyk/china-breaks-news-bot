@@ -389,6 +389,31 @@ def _build_china_signal_keywords() -> frozenset[str]:
         # keyword hits were exactly this) — explicit user call to accept
         # that extra Scorer-call cost rather than miss TikTok/ByteDance
         # ownership-and-CCP-data-access stories.
+        # 2026-09-22: China/Taiwan/Hong Kong in the languages this
+        # gazetteer never covered. This function's own docstring named the
+        # gap as a known, accepted residual ("a genuine China story
+        # published ONLY in a language this project hasn't built entries
+        # for yet (Korean, Burmese, Malay, ...) could be wrongly skipped")
+        # and main.py logs every skip so it could be measured. Measured:
+        # of 129,488 real prefilter_reject records, 214 contain one of
+        # these and nothing else the list covered — real stories, not
+        # edge cases. Among them a Korean report on a Chinese food-factory
+        # sulphur scandal, the Chinese foreign minister on an EU trade
+        # war, China's price offensive against Korean battery makers, and
+        # Vietnamese coverage of the Xi Jinping White House state visit.
+        # Cost of letting them through: 214 extra Scorer calls per 16
+        # days, about $0.09.
+        #
+        # Korean 대만 does substring-collide inside "10대만" ("only
+        # teenagers") — non-ASCII keywords get no \b anchor, by design,
+        # see _china_signal_pattern(). That direction is harmless: a false
+        # match costs one Scorer call, it never skips a real story.
+        "중국", "중공", "중화", "베이징", "시진핑", "대만", "홍콩", "신장",  # Korean
+        "trung quốc", "đài loan", "hồng kông", "tập cận bình",  # Vietnamese
+        "चीन", "बीजिंग", "ताइवान", "शी जिनपिंग",  # Hindi
+        "tiongkok", "tsina",  # Indonesian/Malay, Tagalog
+        "จีน", "ปักกิ่ง", "ไต้หวัน",  # Thai
+        "တရုတ်", "ចិន",  # Burmese, Khmer
         "huawei", "xiaomi", "小米",
         "alibaba", "阿里巴巴",
         "tencent", "腾讯", "騰訊",

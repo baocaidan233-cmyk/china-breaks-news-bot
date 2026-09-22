@@ -5,13 +5,14 @@ agents/headline_card.py draws:
 
   SCMP        20/20 usable, always 1200x630
   ZeroHedge    6/6  usable
-  Google News  0/20 — its og:image is a 300x300 Google placeholder, rejected by
-               the size gate below, so Google News always gets the text card.
-               (Resolving the news.google.com redirect to the real article is
-               possible in principle through the shared render service, but the
-               attempt rate-limited to 429 against Google within eight requests
-               and the self-hosted resolver DailyNews uses was returning 400 on
-               every call. Not pursued; the text card is the answer for now.)
+  Google News  7/8 once resolved. Its own og:image is a 300x300 Google
+               placeholder, so the redirect has to be followed first — see
+               _resolve_via_render() below. Two earlier measurements said 0/20
+               and 0/6; both were taken after a burst of eight back-to-back
+               requests had put this VM's IP into a Google 429. Re-measured at
+               the pace production actually runs at (one publish per ~20 min),
+               it resolved 7 of 8 with no 429 at all: Baird Maritime, Focus
+               Taiwan, Yahoo, NK News, China Daily HK, Semafor, KED Global.
 
 Two source-specific rules, both measured rather than assumed:
 
@@ -53,6 +54,65 @@ _WATERMARK_CROP = {"scmp.com": 0.22}
 
 _ZH_DERIVATIVE = re.compile(r"/styles/[^/]+/public/")
 
+# Domains that republish other outlets' copy under their own shell. Their
+# og:image is frequently a house stock photo rather than the story's, and a
+# wrong photo is worse than no photo: the first end-to-end Google News render
+# put an empty boardroom next to "Beijing has stepped up naval activity off
+# Alaska", resolved through Yahoo. A real publisher's own og:image is the
+# story's photo — the FT article resolved in the same pass returned rare earth
+# ore at a Chinese port for a rare earth story. So this excludes the
+# republishers, not the feature.
+_SYNDICATORS = ("yahoo.com", "yahoo.co.jp", "msn.com", "news.google.com",
+                "flipboard.com", "smartnews.com", "buzzing.cc")
+
+
+def _is_syndicator(url: str) -> bool:
+    low = (url or "").lower()
+    return any(d in low for d in _SYNDICATORS)
+
+
+_OG_IMAGE = re.compile(
+    r"""<meta[^>]+(?:property|name)=["']og:image["'][^>]*content=["']([^"']+)""", re.I)
+_OG_IMAGE_REV = re.compile(
+    r"""<meta[^>]+content=["']([^"']+)["'][^>]*(?:property|name)=["']og:image["']""", re.I)
+_CANONICAL = re.compile(
+    r"""<link[^>]+rel=["']canonical["'][^>]*href=["']([^"']+)""", re.I)
+
+
+async def _resolve_via_render(google_url: str) -> tuple[str, str]:
+    """Follows a news.google.com redirect in the shared headless browser and
+    reads the destination article's og:image out of the SAME rendered page.
+
+    Reading it from the rendered page rather than re-fetching the resolved URL
+    is deliberate: a plain httpx fetch of focustaiwan.tw came back with no
+    og:image at all while the rendered page had one, so a second fetch would
+    throw away photos this already has. It also halves the requests.
+
+    Returns (image_url, canonical_url), either of which may be "". Fails open
+    on everything — core/render_client.py already returns None rather than
+    raising, and a miss here just means the text card.
+    """
+    from core.render_client import render
+
+    result = await render(google_url, mode="rendered", wait_ms=6000, timeout_ms=35000)
+    if not result:
+        logger.info("card_photo: render service could not resolve %s", google_url[:90])
+        return "", ""
+    _status, html = result
+    m = _OG_IMAGE.search(html) or _OG_IMAGE_REV.search(html)
+    c = _CANONICAL.search(html)
+    image = m.group(1).strip() if m else ""
+    canonical = c.group(1).strip() if c else ""
+    if image and "google" in image.lower():
+        # Still on a Google page — the redirect did not complete.
+        image = ""
+    if image and _is_syndicator(canonical):
+        logger.info("card_photo: %s is a republisher, not using its photo", canonical[:70])
+        image = ""
+    logger.info("card_photo: google news %s -> %s (img %s)", google_url[:60],
+                canonical[:70] or "unresolved", "yes" if image else "no")
+    return image, canonical
+
 
 def _upgrade(url: str) -> list[str]:
     """Candidate URLs to try, best first."""
@@ -73,6 +133,13 @@ async def fetch_card_photo(image_url: str, article_url: str) -> bytes | None:
     """Downloads the article's og:image and returns PNG-ready JPEG bytes, or
     None if there is no usable photo — fail open, same as every other
     best-effort network call here. None means the text card."""
+    if "news.google.com" in (article_url or ""):
+        # The og:image the caller has is Google's placeholder; the real one is
+        # behind the redirect. The resolved URL also decides the watermark
+        # crop, since a Google News item can land on SCMP.
+        image_url, resolved = await _resolve_via_render(article_url)
+        article_url = resolved or article_url
+
     if not image_url or not image_url.startswith("http"):
         return None
 
