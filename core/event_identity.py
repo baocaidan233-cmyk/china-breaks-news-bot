@@ -885,6 +885,41 @@ def _first_sentence(text: str) -> str:
     return _SENTENCE_SPLIT_RE.split(cleaned, maxsplit=1)[0].strip()
 
 
+# Wire datelines and feed furniture that survive _strip_html() and land in the
+# text every event-identity judgment is made on. Mined from 60,000 real
+# candidate_text records (2026-09-22): "РИА Новости, 22.09.2026" trails 2.2% of
+# all of them, and Google News puts " - Publisher" on the end of every one of
+# its titles, which is 24% of this channel's candidates.
+#
+# Measured effect on 300 same-event and 300 different-event pairs from the
+# decision log: it lowers BOTH sides' cosine by about the same amount, so it is
+# not a free win — what improves is the separation between them, 0.115 -> 0.124.
+# That is why heat.event_retrieval_threshold was retuned in the same change
+# rather than left where it was.
+_BOILERPLATE = [
+    # Google News title suffix: "Headline - Publisher"
+    re.compile(r"\s+-\s+[^\-\n]{2,40}(?=\n|$)"),
+    # RIA/TASS trailing stamp: "… РИА Новости, 22.09.2026"
+    re.compile(r"(РИА\s+Новости|ТАСС),\s*\d{1,2}\.\d{2}\.20\d{2}\s*$", re.M),
+    # Wire datelines: "МОСКВА, 22 сен – " / "BEIJING, Sept 22 (Reuters) - "
+    re.compile(r"^[А-ЯЁ][А-ЯЁ\s\-]{2,30},\s*\d{1,2}\s+\S+\s*[–—-]\s*", re.M),
+    re.compile(r"^[A-Z][A-Za-z\s\.]{2,24},\s*\w{3,9}\s*\d{1,2}\s*\((?:Reuters|AFP|AP|Xinhua)\)\s*[-–—]\s*", re.M),
+    re.compile(r"\((?:Reuters|AFP|AP)\)\s*[-–—]\s*"),
+    # Taiwanese/HK/Japanese feed furniture
+    re.compile(r"Newtalk\s*新聞"),
+    re.compile(r"【[^】]{0,24}(?:共同社|中央社|綜合報導|綜合外電報導)[^】]{0,24}】"),
+    re.compile(r"[（(](?:中央社|共同社)[^）)]{0,24}[）)]"),
+    re.compile(r"／[^／]{0,10}(?:綜合報導|編譯)】?"),
+]
+
+
+def strip_boilerplate(text: str) -> str:
+    """Removes wire datelines and feed furniture — see _BOILERPLATE."""
+    for pattern in _BOILERPLATE:
+        text = pattern.sub(" ", text)
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
 def event_identity_text(title: str, description: str) -> str:
     """Title + only the description's FIRST SENTENCE — the text every
     event-identity judgment (entity_tokens(), extract_event_frame(),
@@ -911,7 +946,7 @@ def event_identity_text(title: str, description: str) -> str:
     event is this") than "is this worth covering" or "what should the post
     say," and narrowing their input would lose real substance those steps
     need."""
-    return f"{title}\n{_first_sentence(description)}"
+    return strip_boilerplate(f"{title}\n{_first_sentence(description)}")
 
 
 _LOCATION_LABELS = {"GPE", "LOC", "FAC"}

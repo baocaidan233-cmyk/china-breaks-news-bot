@@ -261,7 +261,9 @@ class EventStore:
 
     def __init__(self, config: AppConfig) -> None:
         self._collection = config.qdrant.events_collection
-        self._related_threshold = config.heat.related_threshold
+        # Retrieval floor only — see HeatConfig.event_retrieval_threshold for
+        # why this is no longer heat.related_threshold.
+        self._related_threshold = config.heat.event_retrieval_threshold
         self._window_seconds = config.heat.window_hours * 3600
         self._major_outlets = set(config.heat.major_outlets)
         self._major_outlet_weight = config.heat.major_outlet_weight

@@ -110,6 +110,7 @@ hot_topics:
 
 heat:
   related_threshold: 0.6      # cosine floor for "same event, different source" — below dedup.semantic_threshold
+  event_retrieval_threshold: 0.55  # 2026-09-22: EventStore 检索下限，从 related_threshold 拆出来单独调。实测 0.60 时同事件召回仅 84%，1/6 的同事件配对根本检索不到 — 见 core/config.py 里的完整数据
   window_hours: 240           # 10 days — matches redis.ttl_seconds' convention, wider than qdrant.cross_cycle_window_hours (72h) so multi-day events don't fragment
   # Domain adaptation: AM1ST's own major_outlets list is US-domestic wire/TV
   # outlets (Reuters/CNN/Fox News/...), not particularly relevant to a

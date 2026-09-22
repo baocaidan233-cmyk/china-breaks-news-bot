@@ -363,6 +363,27 @@ class HeatConfig(BaseModel):
     matching robustness."""
 
     related_threshold: float = 0.6  # cosine similarity floor for "same event" — below dedup.semantic_threshold on purpose, that band is "duplicate," this one is "corroborating"
+    # 2026-09-22 — EventStore.peek()/peek_top_k()'s retrieval floor, split out
+    # from related_threshold so it can be tuned without also widening the three
+    # dedup gray zones that constant feeds (main.py's intra-batch clustering,
+    # is_cross_cycle_duplicate(), agents/posted_dedup_checker.py).
+    #
+    # Measured on 300 same-event and 300 different-event pairs taken from the
+    # decision log's own verdicts, after strip_boilerplate():
+    #     0.60 -> 77% of same-event pairs retrieved, 30% of unrelated ones
+    #     0.55 -> 91%                                58%
+    #     0.50 -> 96%                                78%
+    # At the old 0.60 (and without boilerplate stripping) recall was 84%, so
+    # roughly one in six same-event pairs was never retrieved at all — the
+    # verifier never saw them and they became separate events. That is the
+    # single largest cause of the event store's over-splitting: 2,520 events
+    # for 1,586 candidates, with the Trump-Xi summit alone spread over 63.
+    #
+    # 0.55 is the chosen point: it buys back most of that recall, and the extra
+    # unrelated candidates cost one verification call each — about $2/month at
+    # this bot's measured rate, against the editors' standing position that a
+    # miss costs far more than a wasted call.
+    event_retrieval_threshold: float = 0.55
     window_hours: int = 240  # 10 days — matches redis.ttl_seconds' 10-day convention; deliberately much wider than qdrant.cross_cycle_window_hours (72h, the plain dedup check's reach) so a multi-day-evolving event doesn't get treated as "expired" and fragmented into a phantom duplicate event
     # Domain adaptation (not an AM1ST value carried over as-is): AM1ST's
     # own major_outlets list is US-domestic wire/TV outlets (Reuters, CNN,
