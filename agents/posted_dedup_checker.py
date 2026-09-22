@@ -165,6 +165,11 @@ async def find_publishable(
                     "candidate_entities": sorted(candidate_entities),
                     "matched_entities": sorted(matched_entities),
                     "entity_overlap": sorted(candidate_entities & matched_entities),
+                    # 2026-09-22 — same addition as AM1ST: the two texts exactly as
+                    # same_event()/the rule tier saw them, so a verdict can be replayed
+                    # offline. Fires ~101 times/day here.
+                    "candidate_text": candidate_content,
+                    "matched_text": matched_content,
                 })
             log_decision(config, log_record)
 

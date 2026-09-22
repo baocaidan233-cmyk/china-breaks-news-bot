@@ -557,7 +557,32 @@ async def run_cycle(
             # applies elsewhere instead of trusting a single raw number in
             # that gray zone — see its own docstring in core/event_identity.py.
             candidate_text = event_identity_text(c.title, c.description)
-            if is_cross_cycle_duplicate(candidate_text, matched_content, best_score, threshold, related_threshold):
+            is_dup = is_cross_cycle_duplicate(candidate_text, matched_content, best_score, threshold, related_threshold)
+            # 2026-09-22 — this branch previously logged NOTHING. It is the only
+            # dedup stage in this bot with no record at all: a field-occurrence
+            # scan of event_identity_decisions.jsonl found prefilter_reject,
+            # intra_batch_cluster, posted_dedup and lexical_fallback records but
+            # zero cross_cycle_dedup ones, so every drop decided here was
+            # invisible — including which ones came from the gray-zone entity
+            # rule versus the hard cosine cutoff. Errors in this direction are
+            # unrecoverable: a wrongly-dropped candidate never reaches the
+            # publish stage, so the publish-side backstop cannot see it either,
+            # and with no log it could not be counted. Mirrors AM1ST's own
+            # cross_cycle_dedup record (main.py) field for field so one audit
+            # script can read both. Observation only — is_dup is computed
+            # exactly as before and the branch below is unchanged.
+            if matched_content:
+                log_decision(config, {
+                    "check_type": "cross_cycle_dedup",
+                    "candidate_url": c.url,
+                    "cosine_score": best_score,
+                    "threshold": threshold,
+                    "related_threshold": related_threshold,
+                    "final_verdict": "duplicate" if is_dup else "kept",
+                    "candidate_text": candidate_text,
+                    "matched_text": matched_content,
+                })
+            if is_dup:
                 logger.info("run_cycle: %s dropped — cross-cycle semantic duplicate (%.3f)", c.url, best_score)
                 continue
             c.heat_score = preview_heat
