@@ -143,6 +143,7 @@ class RedisConfig(BaseModel):
     # PublishConfig.candidate_max_age_hours (24h ceiling) so it always
     # outlives the candidate's eligibility window and self-expires after.
     caption_ttl_seconds: int = 172800  # 48h
+    dup_strike_prefix: str = "chinabreaks:pubdup:"  # PostedDupStrikes — how many publish cycles have called this candidate a duplicate; same TTL as the caption cache
 
 
 class OpenAIConfig(BaseModel):
@@ -467,6 +468,14 @@ class PublishConfig(BaseModel):
     priority_rank_prompt_file: str = "prompts/priority_rank_prompt.txt"
     posted_dedup_window_hours: int = 240  # 10 days — matches heat.window_hours so both "have we already covered this" checks agree on how long an event stays "recent"
     posted_dedup_threshold: float = 0.80  # 2026-09-07: was 0.70 ("stricter than the ingestion side's 0.8 — deliberate: fully autonomous posting should err toward under-posting") — raised to match dedup.semantic_threshold exactly, per the user's explicit call, now that agents/posted_dedup_checker.py's gray zone (heat.related_threshold=0.6 through this value) does the same entity-overlap widening core/event_identity.py's is_cross_cycle_duplicate() already does on the ingestion side. A real production miss (2026-09-07) showed why the OLD single-cutoff design at 0.70 wasn't actually safer: two Taiwan Coast Guard articles about the literal same incident scored 0.6986, missed that cutoff by 0.0014, and got published as separate posts — the old "stricter cutoff" only helped when a genuine duplicate happened to score above it, and did nothing for a near-miss just below. The gray zone is the actual safety net now, not the raw threshold.
+    # 2026-09-25, ported from AM1ST: retire a candidate from the pool once the
+    # publish-side dedup has called it a duplicate this many times. Measured on
+    # this channel's full posted_dedup log (3199 verdicts): 1855 re-judgments
+    # came after a first duplicate verdict, and 73 candidates went out only
+    # after 1-8 straight duplicate verdicts. 2, not 1, keeps one re-roll for a
+    # borderline first call; beyond that a flip is the judge being re-asked
+    # until it slips, not a second opinion.
+    posted_dedup_strikes_before_retire: int = 2
     max_widen_attempts: int = 3  # ported from AM1ST 2026-09-06 — how many batch_max-sized chunks of the eligible pool to try before accepting "nothing to publish this cycle" as real, not just "the first batch_max happened to all be duplicates"; each attempt costs a real extraction+content-gen pass, so this isn't unbounded search over the whole pool
     staleness_check_hours_floor: int = 72  # ported from AM1ST 2026-09-06 — agents/staleness_checker.py's LLM call only runs when event_first_seen_at is at least this old; reuses dedup.cross_cycle_window_hours' existing 72h convention rather than picking a new number, keeping this an infrequent extra cost rather than doubling the LLM calls made for every candidate
 

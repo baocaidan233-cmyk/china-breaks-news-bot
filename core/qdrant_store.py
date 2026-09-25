@@ -787,16 +787,21 @@ class PostedHistoryStore:
             collection_name=self._collection, field_name="publishedAt", field_schema=PayloadSchemaType.INTEGER,
         )
 
-    async def most_similar_recent(self, embedding: list[float]) -> tuple[float, str, str]:
-        """Highest cosine similarity against post_content embeddings whose
-        source article was published in the last window, plus that match's
-        url and its own stored content (2026-09-02, for agents/
-        posted_dedup_checker.py's observational entity-overlap logging — see
-        that module's docstring) for logging. Returns (0.0, "", "") if
-        Qdrant isn't configured, the collection is empty, or the query
-        fails — fail open, same as QdrantStore.most_similar_recent."""
+    async def similar_recent(self, embedding: list[float]) -> list[dict]:
+        """Up to 5 posted points whose source article was published in the
+        last window, most similar first, each as {score, url, content,
+        title, description}. title/description are the source article's own,
+        written since 2026-09-25 (see write() below) and backfilled for the
+        window that existed then; a point without them comes back with "".
+
+        2026-09-25: returns every hit instead of only the best one. The
+        caller used to see just the top-1 match, so a real duplicate that
+        ranked second behind an unrelated post that happened to score
+        higher on caption wording was never looked at. Returns [] if Qdrant
+        isn't configured, nothing matches, or the query fails — fail open,
+        same as QdrantStore.most_similar_recent."""
         if self._client is None:
-            return 0.0, "", ""
+            return []
         cutoff = time.time() - self._window_seconds
         try:
             result = await self._client.query_points(
@@ -808,18 +813,29 @@ class PostedHistoryStore:
             )
         except Exception:
             logger.exception("PostedHistoryStore: query failed, treating as no match")
-            return 0.0, "", ""
-        points = result.points
-        if not points:
-            return 0.0, "", ""
-        best = max(points, key=lambda p: p.score)
-        payload = best.payload or {}
-        return best.score, payload.get("url", ""), payload.get("content", "")
+            return []
+        matches = []
+        for p in sorted(result.points, key=lambda p: p.score, reverse=True):
+            payload = p.payload or {}
+            matches.append({
+                "score": p.score,
+                "url": payload.get("url", ""),
+                "content": payload.get("content", ""),
+                "title": payload.get("title", ""),
+                "description": payload.get("description", ""),
+            })
+        return matches
 
-    async def write(self, url: str, url_hash: str, content: str, published_at_unix: int, embedding: list[float]) -> None:
+    async def write(
+        self, url: str, url_hash: str, content: str, published_at_unix: int, embedding: list[float],
+        title: str = "", description: str = "",
+    ) -> None:
         """Called once, right after the publish cycle's winner is chosen —
         never for a rejected/duplicate candidate. `content` should be the
-        post_content the embedding was computed from."""
+        post_content the embedding was computed from. title/description
+        (2026-09-25) are the source article's own, kept so the gray-zone
+        same_event() call can compare two source articles instead of two of
+        our own captions — see agents/posted_dedup_checker.py."""
         if self._client is None:
             return
         await self._client.upsert(
@@ -828,7 +844,10 @@ class PostedHistoryStore:
                 PointStruct(
                     id=str(uuid.uuid4()),
                     vector=embedding,
-                    payload={"content": content, "url": url, "urlHash": url_hash, "publishedAt": published_at_unix},
+                    payload={
+                        "content": content, "url": url, "urlHash": url_hash, "publishedAt": published_at_unix,
+                        "title": title, "description": description,
+                    },
                 )
             ],
         )

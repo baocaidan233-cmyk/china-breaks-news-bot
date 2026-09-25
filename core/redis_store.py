@@ -93,3 +93,49 @@ class CaptionCache:
     async def close(self) -> None:
         if self._client is not None:
             await self._client.aclose()
+
+
+class PostedDupStrikes:
+    """Counts how many publish cycles have confirmed one candidate a duplicate
+    of already-posted content, so main_publish.py can retire it from the pool
+    instead of re-extracting and re-writing it every cycle for the rest of its
+    eligibility window. Ported from AM1ST 2026-09-25 (its commit 5f2f052);
+    see PublishConfig.posted_dedup_strikes_before_retire for this channel's
+    own numbers.
+
+    Keyed by url_hash like CaptionCache above and shares caption_ttl_seconds:
+    both need to outlive the candidate's eligibility window, then go away on
+    their own. The count is cumulative within the TTL rather than literally
+    consecutive, which is the same thing here: the only way a candidate gets
+    a "kept" verdict is to be the cycle's winner, and a winner is published
+    and flagged sent, so it never comes back to be struck again.
+
+    Fails open by returning 0 on any error or without REDIS_URL: a Redis blip
+    must never retire a candidate, only ever fail to retire one."""
+
+    def __init__(self, config: AppConfig) -> None:
+        self._prefix = config.redis.dup_strike_prefix
+        self._ttl = config.redis.caption_ttl_seconds
+        self._client = (
+            redis.from_url(config.redis.url, decode_responses=True, socket_timeout=10, socket_connect_timeout=10)
+            if config.redis.url
+            else None
+        )
+
+    async def strike(self, url_hash: str) -> int:
+        """Records one duplicate verdict and returns this candidate's running
+        total, refreshing the expiry each time."""
+        if self._client is None or not url_hash:
+            return 0
+        try:
+            key = self._prefix + url_hash
+            count = await self._client.incr(key)
+            await self._client.expire(key, self._ttl)
+            return int(count)
+        except Exception:
+            logger.exception("PostedDupStrikes: strike failed for %s — returning 0, candidate stays in the pool (fail open)", url_hash)
+            return 0
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()

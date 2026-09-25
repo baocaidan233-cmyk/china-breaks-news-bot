@@ -63,6 +63,7 @@ redis:
   ttl_seconds: 864000  # 10 days — standing dedup architecture default, unchanged from AM1ST
   caption_prefix: "chinabreaks:caption:"
   caption_ttl_seconds: 172800  # 48h — see core/config.py RedisConfig comment
+  dup_strike_prefix: "chinabreaks:pubdup:"  # 发布端同一条候选被判重复的次数，见 publish.posted_dedup_strikes_before_retire
 
 openai:
   chat_model: "gpt-4o-mini"  # every OpenAI-backed call — Writer, Scorer, PriorityRanker, EventVerifier — this project's standing "gpt-4o-mini everywhere" rule
@@ -190,6 +191,7 @@ publish:
   priority_rank_prompt_file: "prompts/priority_rank_prompt.txt"
   posted_dedup_window_hours: 240  # 10 days, matches heat.window_hours
   posted_dedup_threshold: 0.80  # 2026-09-07: was 0.70 — raised to match dedup.semantic_threshold exactly now that the gray zone (0.6-0.8, entity-overlap-widened) is the real safety net, not the raw cutoff — see core/config.py's PublishConfig docstring
+  posted_dedup_strikes_before_retire: 2  # 被判重复这么多次后把候选从池子里退役（留一次翻盘机会）——见 core/config.py
   max_widen_attempts: 3  # ported from AM1ST 2026-09-06 — see core/config.py's PublishConfig docstring
   staleness_check_hours_floor: 72  # ported from AM1ST 2026-09-06
 

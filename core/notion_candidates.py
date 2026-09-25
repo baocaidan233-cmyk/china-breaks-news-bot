@@ -312,6 +312,17 @@ async def mark_extraction_failed(config: AppConfig, page_id: str) -> bool:
         return False
 
 
+async def mark_dedup_rejected(config: AppConfig, page_id: str) -> bool:
+    """Called by main_publish.py once the publish-side dedup has confirmed a
+    candidate a duplicate of already-posted content
+    posted_dedup_strikes_before_retire times (2026-09-25, ported from
+    AM1ST). Reuses the extraction_failed flag rather than adding a column,
+    the same choice AM1ST made: the effect wanted is exactly that flag's —
+    never select this row again — and query_eligible_candidates() and
+    has_unpublished_hot_candidate() already honor it."""
+    return await mark_extraction_failed(config, page_id)
+
+
 async def mark_writer_rejected(config: AppConfig, page_id: str) -> bool:
     """Flips writer_rejected to true — called by main_publish.py's
     run_cycle() the moment Writer.is_no_comment() is true for a candidate.

@@ -42,14 +42,15 @@ until the next check):
      freshness_penalty, given a read-only snapshot of Google News' current
      top world/China headlines as trending context (see
      agents/trending.py — never ingested/scored/published from directly)
-  -> walk the ranked list, skipping anything that's a near-duplicate of
-     content this channel already posted in the last 10 days (cosine
-     threshold 0.70 — stricter than the ingestion side's 0.8, deliberately,
-     since this is a fully-autonomous post) AND that
-     core/event_identity.py's EventVerifier.same_event() also confirms is
-     the same real-world occurrence, not just a lexically-similar
-     next-stage development (2026-09-06, ported from AM1ST — see
-     agents/posted_dedup_checker.py's docstring)
+  -> walk the ranked list, skipping anything that
+     core/event_identity.py's EventVerifier.same_event() confirms is the
+     same real-world occurrence as one of the 5 most similar posts this
+     channel made in the last 10 days. A match is only put to the judge if
+     its caption cosine is above 0.80, or 0.60-0.80 with a shared named
+     entity; in that 0.60-0.80 band the judge compares the two source
+     articles' title + lead instead of our captions. A candidate judged a
+     duplicate twice is retired from the pool. See
+     agents/posted_dedup_checker.py's docstring.
   -> the first survivor is the winner; mark it sent + record its embedding
      in the posted-history collection.
 
@@ -121,11 +122,11 @@ from agents.writer import Writer
 from core.alerts import AlertNotifier
 from core.config import load_config
 from core.event_identity import EventVerifier
-from core.notion_candidates import has_unpublished_hot_candidate, mark_extraction_failed, mark_send_status, mark_writer_rejected, query_eligible_candidates
+from core.notion_candidates import has_unpublished_hot_candidate, mark_dedup_rejected, mark_extraction_failed, mark_send_status, mark_writer_rejected, query_eligible_candidates
 from core.publish_cadence import compute_dynamic_interval
 from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
-from core.redis_store import CaptionCache
+from core.redis_store import CaptionCache, PostedDupStrikes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main_publish")
@@ -237,6 +238,7 @@ async def run_cycle(
     writer: Writer,
     staleness_checker: StalenessChecker,
     caption_cache: CaptionCache,
+    dup_strikes: PostedDupStrikes,
     dry_run: bool,
 ) -> bool:
     """Returns True iff this cycle actually published something — main()'s
@@ -382,7 +384,22 @@ async def run_cycle(
 
         ranked = await ranker.rank(generated, trending_headlines)
         ranked_len = len(ranked)
-        winner = await find_publishable(ranked, embedder, posted_store, event_verifier, config)
+        # 2026-09-25, ported from AM1ST — retire a candidate the dedup check
+        # keeps rejecting instead of re-extracting and re-writing it every
+        # cycle for the rest of its window. Notion is only written on the
+        # strike that reaches the threshold. See
+        # PublishConfig.posted_dedup_strikes_before_retire.
+        async def _retire_if_settled(c) -> None:
+            strikes = await dup_strikes.strike(c.url_hash)
+            if strikes < config.publish.posted_dedup_strikes_before_retire:
+                return
+            if dry_run:
+                logger.info("run_cycle: dry-run — would retire %s after %d duplicate verdicts", c.url, strikes)
+                return
+            if await mark_dedup_rejected(config, c.page_id):
+                logger.info("run_cycle: %s retired from the pool — %d duplicate verdicts", c.url, strikes)
+
+        winner = await find_publishable(ranked, embedder, posted_store, event_verifier, config, on_duplicate=_retire_if_settled)
         if winner is not None:
             logger.info("run_cycle: widen attempt %d — found a publishable candidate", attempt)
             break
@@ -454,6 +471,7 @@ async def run_cycle(
         winner_embedding = await embedder.embed(content_for_embedding(winner.post_content, winner.url))
         await posted_store.write(
             winner.url, winner.url_hash, winner.post_content, int(winner.published_at.timestamp()), winner_embedding,
+            title=winner.title, description=winner.description,
         )
 
         # Flag the underlying event as published (2026-08-07) — so a later
@@ -494,6 +512,7 @@ async def main() -> None:
     writer = Writer(config)
     staleness_checker = StalenessChecker(config)
     caption_cache = CaptionCache(config)
+    dup_strikes = PostedDupStrikes(config)
     await ensure_collection_with_retry(posted_store, "chinabreaks_posting_news_embedding")
     await ensure_collection_with_retry(event_store, "chinabreaks_events")
 
@@ -507,7 +526,7 @@ async def main() -> None:
             published_this_cycle = False
             try:
                 published_this_cycle = await asyncio.wait_for(
-                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, headline_writer, extractor, writer, staleness_checker, caption_cache, dry_run),
+                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, headline_writer, extractor, writer, staleness_checker, caption_cache, dup_strikes, dry_run),
                     timeout=config.cycle_timeout_seconds,
                 )
             except asyncio.TimeoutError:
@@ -558,6 +577,7 @@ async def main() -> None:
         await posted_store.close()
         await event_store.close()
         await caption_cache.close()
+        await dup_strikes.close()
 
 
 if __name__ == "__main__":
