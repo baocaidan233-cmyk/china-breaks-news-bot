@@ -656,6 +656,40 @@ _OFFTOPIC_URL_EXEMPT_DOMAINS = {"koreatimes.co.kr", "www.koreatimes.co.kr"}
 _XI_JINPING_URL_RE = re.compile(r"xi-?jinping|xi_jinping", re.IGNORECASE)
 
 
+# Site-specific sections (2026-09-26, the user's call). Each one was scored
+# 40-130 times over 2026-09-12..26 with nothing reaching the candidate pool
+# and nothing published -- every item cost a scorer call for a known answer.
+# Only groups with zero passes went in; a section that passed even once
+# (Middle East Eye's live blog, ria.ru's Russia/Trump tags) stays, because a
+# wrongly blocked story is gone for good while a missed block costs one call.
+# (host suffix, path regex)
+_OFFTOPIC_SITE_SECTIONS = [
+    ("oglobo.globo.com", re.compile(r"^/politica/")),
+    ("bbc.co.uk", re.compile(r"^/news/articles/")),
+    ("novayagazeta.eu", re.compile(r"^/articles/")),
+    ("ria.ru", re.compile(r"^/\d{8}/(?:vybory|ukraina|iran)-\d+\.html")),
+    ("aa.com.tr", re.compile(r"^/en/(?:middle-east|europe|world|russia-ukraine-war)/")),
+    ("arabnews.com", re.compile(r"^/middle-east/")),
+    ("news.zerkalo.io", re.compile(r"^/world/")),
+    ("iranintl.com", re.compile(r"^/en/")),
+    ("meduza.io", re.compile(r"^/en/feature/")),
+    ("aif.ru", re.compile(r"^/incidents/")),
+    ("gulfnews.com", re.compile(r"^/world/mena/")),
+    ("theguardian.com", re.compile(r"^/commentisfree/")),
+    ("inosmi.ru", re.compile(r"^/\d{8}/ukraina-\d+\.html")),
+    ("themoscowtimes.com", re.compile(r"^/")),
+]
+
+
+def _offtopic_site_section(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    for suffix, path_re in _OFFTOPIC_SITE_SECTIONS:
+        if (host == suffix or host.endswith("." + suffix)) and path_re.search(parsed.path or "/"):
+            return True
+    return False
+
+
 def is_offtopic_url_section(url: str) -> bool:
     """Cheap, pre-embedding URL-path pre-filter (2026-09-14) — same fail-
     open philosophy as has_china_signal() (a false match here only costs
@@ -667,7 +701,7 @@ def is_offtopic_url_section(url: str) -> bool:
         return False
     if _XI_JINPING_URL_RE.search(url):
         return False
-    return bool(_OFFTOPIC_URL_RE.search(url))
+    return bool(_OFFTOPIC_URL_RE.search(url)) or _offtopic_site_section(url)
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
