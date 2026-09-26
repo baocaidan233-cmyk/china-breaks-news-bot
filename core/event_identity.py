@@ -913,6 +913,75 @@ _BOILERPLATE = [
 ]
 
 
+# --- 2026-09-26: model-free signals for the event store's 0.70-0.80 band ---
+# Measured on the 190 hand-labelled gold pairs (title + lead, the same text the
+# event store compares). In 0.70-0.80: a shared key number, or near-identical
+# title wording, marked 3 of 23 same-event pairs with no false hit; one side
+# being opinion/analysis while the other is not marked 7 pairs, none of them
+# the same event (22 pairs / 2 same in 0.60-0.70). None of the positive
+# signals worked below 0.70 -- which is why the event store no longer merges
+# there at all. See main.py's event-match walk.
+_OPINION_RE = re.compile(
+    r"\b(opinion|analysis|column|commentary|editorial|explainer|why|how|what)\b"
+    r"|評論|评论|觀察|观察|分析|社論|社评|专家|學者|\?|？",
+    re.IGNORECASE,
+)
+_KEY_NUMBER_RE = re.compile(
+    r"(?<![\w.])(\d{1,3}(?:[,.]\d{3})+|\d+(?:\.\d+)?)\s*"
+    r"(%|percent|million|billion|trillion|万|亿|億|km|tons?|吨|人|名|架|艘|枚)?",
+    re.IGNORECASE,
+)
+
+
+def _title_line(text: str) -> str:
+    return (text or "").split("\n", 1)[0][:200]
+
+
+def is_opinion_title(text: str) -> bool:
+    """Title reads as opinion/analysis/explainer rather than a report."""
+    return bool(_OPINION_RE.search(_title_line(text)))
+
+
+def _key_numbers(text: str) -> set[str]:
+    """Salient figures -- amounts, counts, percentages. Years and bare small
+    numbers (days of the month, "two officials") are left out: they recur
+    across unrelated stories."""
+    out = set()
+    for num, unit in _KEY_NUMBER_RE.findall(text or ""):
+        raw = num.replace(",", "")
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if not unit and (1990 <= value <= 2035 or value <= 31):
+            continue
+        out.add(raw + (unit or "").lower())
+    return out
+
+
+def _title_char_ngrams(text: str, n: int = 4) -> set[str]:
+    t = re.sub(r"\s+", " ", _title_line(text).lower())
+    return {t[i:i + n] for i in range(max(0, len(t) - n + 1))}
+
+
+def opinion_mismatch(text_a: str, text_b: str) -> bool:
+    """Exactly one of the two is an opinion/analysis piece."""
+    return is_opinion_title(text_a) != is_opinion_title(text_b)
+
+
+def strong_same_event_evidence(text_a: str, text_b: str) -> str:
+    """A reason string if the two share a key figure or near-identical title
+    wording, else "". Only meaningful inside the 0.70-0.80 band it was
+    measured on."""
+    shared = _key_numbers(text_a) & _key_numbers(text_b)
+    if shared:
+        return "shared key number " + ",".join(sorted(shared)[:3])
+    ga, gb = _title_char_ngrams(text_a), _title_char_ngrams(text_b)
+    if ga and gb and len(ga & gb) / len(ga | gb) >= 0.25:
+        return "near-identical title wording"
+    return ""
+
+
 def strip_boilerplate(text: str) -> str:
     """Removes wire datelines and feed furniture — see _BOILERPLATE."""
     for pattern in _BOILERPLATE:

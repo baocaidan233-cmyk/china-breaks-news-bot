@@ -71,7 +71,7 @@ from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
 from core.config import load_config
-from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, is_offtopic_url_section, log_decision, no_conflicting_specifics, verify_compatibility
+from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, is_offtopic_url_section, log_decision, no_conflicting_specifics, opinion_mismatch, strong_same_event_evidence, verify_compatibility
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
@@ -417,43 +417,65 @@ async def run_cycle(
         heat_multiplier = 1.0
         subtype = ""
         related_links: list[dict] = []
+        ev_cfg = config.entity_verifier
+        # 2026-09-26 — bands, from 18 days of decisions and 112 hand-read
+        # merges (see EntityVerifierConfig.event_merge_floor): below 0.70 a
+        # merge was wrong about as often as right, the judge included, so
+        # nothing there is merged and nothing is asked. Candidates arrive
+        # cosine-descending, so the walk stops at the first one below it.
+        # Those near-misses still count toward heat, as a probability --
+        # logged only for now (soft_heat below).
+        below_floor: list[float] = []
         for candidate in event_candidates:
-            rule_verdict = await verify_compatibility(config, candidate, new_tokens, hub_index, cluster_text, doc_freq, doc_count, candidate.get("_score", 0.0))
+            score = candidate.get("_score", 0.0) or 0.0
             log_record = {
+                "check_type": "event_match",
                 "event_id": candidate.get("event_id"),
-                "cosine_score": candidate.get("_score"),
-                "rule_verdict": rule_verdict,
+                "cosine_score": score,
                 "candidate_url": members[0][0].url,
                 "candidate_text": cluster_text,
                 "matched_representative_text": candidate.get("representative_text", ""),
             }
-            if rule_verdict == "NO_OVERLAP":
-                logger.info("run_cycle: cluster %d — candidate event %s is UNRELATED (rule tier), trying next candidate", cluster_idx, candidate.get("event_id"))
-                log_decision(config, {**log_record, "final_verdict": "UNRELATED"})
+            if score < ev_cfg.event_merge_floor:
+                below_floor.append(score)
                 continue
-            if rule_verdict == "AMBIGUOUS":
-                same, llm_raw = await event_verifier.same_event(candidate.get("representative_text", ""), cluster_text)
-                log_decision(config, {**log_record, "llm_same_event_raw": llm_raw, "final_verdict": "SAME_OCCURRENCE" if same else "RELATED_DIFFERENT_EVENT"})
-                if not same:
-                    logger.info("run_cycle: cluster %d — candidate event %s is RELATED_DIFFERENT_EVENT (LLM tier), trying next candidate", cluster_idx, candidate.get("event_id"))
-                    related_links.append({"event_id": candidate.get("event_id"), "cosine_score": candidate.get("_score"), "source": "seed_cosine_reject"})
-                    continue
-                matched = candidate
-            else:
-                # COMPATIBLE / FAIL_OPEN: trust the cosine match as-is — a confident rule-tier outcome isn't worth an LLM call just to log it too
-                log_decision(config, {**log_record, "final_verdict": "SAME_OCCURRENCE"})
-                matched = candidate
-
             rep_text = candidate.get("representative_text", "")
-            if (
-                candidate.get("_score", 0.0) >= config.entity_verifier.restatement_cosine_floor
-                and no_conflicting_specifics(rep_text, cluster_text)
-            ):
+            if score < ev_cfg.evidence_ceiling:
+                if opinion_mismatch(rep_text, cluster_text):
+                    log_decision(config, {**log_record, "rule_verdict": "OPINION_MISMATCH", "resolved_by": "opinion_veto", "final_verdict": "RELATED_DIFFERENT_EVENT"})
+                    related_links.append({"event_id": candidate.get("event_id"), "cosine_score": score, "source": "seed_cosine_reject"})
+                    continue
+                evidence = strong_same_event_evidence(rep_text, cluster_text)
+                if evidence:
+                    log_decision(config, {**log_record, "rule_verdict": "STRONG_EVIDENCE", "resolved_by": evidence, "final_verdict": "SAME_OCCURRENCE"})
+                    matched = candidate
+            if matched is None:
+                rule_verdict = await verify_compatibility(config, candidate, new_tokens, hub_index, cluster_text, doc_freq, doc_count, score)
+                log_record["rule_verdict"] = rule_verdict
+                if rule_verdict == "NO_OVERLAP":
+                    logger.info("run_cycle: cluster %d — candidate event %s is UNRELATED (rule tier), trying next candidate", cluster_idx, candidate.get("event_id"))
+                    log_decision(config, {**log_record, "resolved_by": "rule", "final_verdict": "UNRELATED"})
+                    continue
+                if rule_verdict in ("COMPATIBLE", "FAIL_OPEN") and score >= ev_cfg.rule_merge_floor:
+                    # A confident rule-tier outcome isn't worth an LLM call just to log it too.
+                    log_decision(config, {**log_record, "resolved_by": "rule", "final_verdict": "SAME_OCCURRENCE"})
+                    matched = candidate
+                else:
+                    # AMBIGUOUS, or a shared entity below rule_merge_floor: the judge decides.
+                    same, llm_raw = await event_verifier.same_event(rep_text, cluster_text)
+                    log_decision(config, {**log_record, "resolved_by": "llm", "llm_same_event_raw": llm_raw, "final_verdict": "SAME_OCCURRENCE" if same else "RELATED_DIFFERENT_EVENT"})
+                    if not same:
+                        logger.info("run_cycle: cluster %d — candidate event %s is RELATED_DIFFERENT_EVENT (LLM tier), trying next candidate", cluster_idx, candidate.get("event_id"))
+                        related_links.append({"event_id": candidate.get("event_id"), "cosine_score": score, "source": "seed_cosine_reject"})
+                        continue
+                    matched = candidate
+
+            if score >= ev_cfg.restatement_cosine_floor and no_conflicting_specifics(rep_text, cluster_text):
                 subtype, subtype_raw = "RESTATEMENT", "auto: near-identical text, no conflicting places/numbers (LLM call skipped)"
             else:
                 subtype, subtype_raw = await event_verifier.classify_subtype(rep_text, cluster_text)
             heat_multiplier = subtype_weights.get(subtype, 1.0)  # unparseable/unexpected subtype -> plain corroboration weight (fail open)
-            log_decision(config, {**log_record, "subtype": subtype, "subtype_raw": subtype_raw, "heat_multiplier": heat_multiplier})
+            log_decision(config, {**log_record, "check_type": "event_subtype", "subtype": subtype, "subtype_raw": subtype_raw, "heat_multiplier": heat_multiplier})
             break
 
         cluster_peeks.append(matched)
@@ -505,9 +527,19 @@ async def run_cycle(
         # — computed just above, same loop iteration — had already
         # correctly called it RESTATEMENT. Cosine alone is a cruder signal
         # than the entity+LLM verdict this same code path already computes.
-        if matched is not None and matched.get("published") and (
+        # 2026-09-26: both drops below act only on a merge at or above
+        # entity_verifier.event_guard_min_cosine, and are logged -- a wrong
+        # merge used to discard a fresh story with no record anywhere.
+        guard_eligible = matched is not None and (matched.get("_score", 0.0) or 0.0) >= config.entity_verifier.event_guard_min_cosine
+        if guard_eligible and matched.get("published") and (
             matched.get("_score", 0.0) >= threshold or subtype in ("RESTATEMENT", "CORROBORATION")
         ):
+            log_decision(config, {
+                "check_type": "event_guard_drop", "reason": "already_published_event",
+                "candidate_url": members[0][0].url, "event_id": matched.get("event_id"),
+                "cosine_score": matched.get("_score"), "subtype": subtype, "cluster_size": len(members),
+                "candidate_text": cluster_text, "matched_representative_text": matched.get("representative_text", ""),
+            })
             logger.info(
                 "run_cycle: cluster %d dropped — near-duplicate of an already-published event (score=%.3f, subtype=%s)",
                 cluster_idx, matched.get("_score", 0.0), subtype,
@@ -525,13 +557,20 @@ async def run_cycle(
         # article with nothing new to say, just because that particular
         # article itself was freshly crawled. A genuine CORE_UPDATE on an
         # old event still gets through — that's real news.
-        if matched is not None and subtype in ("RESTATEMENT", "CORROBORATION"):
+        if guard_eligible and subtype in ("RESTATEMENT", "CORROBORATION"):
             event_age_hours = (int(time.time()) - matched.get("first_seen_at", int(time.time()))) / 3600
             max_age_hours = (
                 config.publish.weekday_max_age_hours if _is_weekday(datetime.now(timezone.utc))
                 else config.publish.weekend_max_age_hours
             )
             if event_age_hours > max_age_hours:
+                log_decision(config, {
+                    "check_type": "event_guard_drop", "reason": "stale_event",
+                    "candidate_url": members[0][0].url, "event_id": matched.get("event_id"),
+                    "cosine_score": matched.get("_score"), "subtype": subtype, "cluster_size": len(members),
+                    "event_age_hours": round(event_age_hours, 1),
+                    "candidate_text": cluster_text, "matched_representative_text": matched.get("representative_text", ""),
+                })
                 logger.info(
                     "run_cycle: cluster %d dropped — stale event (%.1fh old, ceiling %.0fh) with no new information (subtype=%s)",
                     cluster_idx, event_age_hours, max_age_hours, subtype,
@@ -543,6 +582,21 @@ async def run_cycle(
             matched, cluster["sources"], cluster["earliest_source"], cluster["earliest_unix"], heat_multiplier,
         )
         preview_first_seen_dt = datetime.fromtimestamp(preview_first_seen, tz=timezone.utc)
+        if matched is None:
+            # Shadow only (2026-09-26): heat as an expectation over the nearby
+            # events this cluster was not merged into. Logged beside the heat
+            # actually used, not fed to scoring yet.
+            weights = config.entity_verifier.soft_heat_band_weights
+            soft_extra = 0.0
+            for sc in below_floor:
+                band = max((b for b in weights if sc >= float(b)), key=float, default=None)
+                if band is not None:
+                    soft_extra += weights[band]
+            log_decision(config, {
+                "check_type": "soft_heat_shadow", "candidate_url": members[0][0].url,
+                "heat_used": preview_heat, "soft_heat": round(preview_heat + soft_extra, 3),
+                "near_misses": [round(x, 3) for x in below_floor],
+            })
 
         for c, embedding in members:
             best_score, matched_content = await qdrant_store.most_similar_recent(embedding)

@@ -101,6 +101,13 @@ entity_verifier:
   subtype_core_update_weight: 1.5
   restatement_cosine_floor: 0.92  # AM1ST's own audited value, inherited as a starting point
   no_overlap_llm_review_floor: 0.75  # AM1ST's own audited value, inherited as a starting point
+  # 2026-09-26 事件库归并分段（见 core/config.py）：0.70 以下不归并、不问 AI；
+  # 0.70–0.75 共享实体不再直接归并，交判官；0.80 以下先用两条免 AI 规则
+  event_merge_floor: 0.70
+  rule_merge_floor: 0.75
+  evidence_ceiling: 0.80
+  event_guard_min_cosine: 0.75   # 两道静默丢弃只对 ≥ 此值的归并生效
+  soft_heat_band_weights: {"0.55": 0.10, "0.60": 0.25, "0.65": 0.50}   # 影子模式：只记录不参与打分
   weighted_overlap_threshold: 0.15  # IDF-weighted keyword overlap floor for the FAIL_OPEN branch — ported from North_Korea_News by way of AM1ST, not yet independently validated on chinabreaks_events data
 
 hot_topics:

@@ -277,6 +277,26 @@ class EntityVerifierConfig(BaseModel):
     # semantic grounds. 0.75 is AM1ST's own audited value, inherited as a
     # starting point — not independently re-validated on China Breaks data.
     no_overlap_llm_review_floor: float = 0.75
+    # 2026-09-26 — the event-match walk's bands (main.py). Measured on 18 days
+    # of decisions and 112 hand-read merges: merges at cosine 0.60-0.65 were
+    # ~75% wrong and 0.65-0.70 ~52% wrong -- the same-event judge itself was a
+    # coin flip there (47%) -- so nothing below event_merge_floor is merged,
+    # and no model is asked. Below rule_merge_floor, a shared named entity
+    # alone no longer merges (rule-only merges at 0.70-0.75 were 4/6 wrong,
+    # the judge 1/6); the judge decides. Below evidence_ceiling the two
+    # model-free signals in core/event_identity.py apply first.
+    event_merge_floor: float = 0.70
+    rule_merge_floor: float = 0.75
+    evidence_ceiling: float = 0.80
+    # The two silent drops (already-published event / stale event) only act on
+    # merges at or above this cosine: a wrong merge below it used to throw a
+    # fresh story away unseen -- 1,229 of 1,712 published-event drops in 18
+    # days sat below 0.75.
+    event_guard_min_cosine: float = 0.75
+    # Shadow only (logged, not used for scoring yet): heat for a brand-new
+    # event, plus each nearby event below event_merge_floor weighted by how
+    # often a pair in that cosine band is the same event in the labelled data.
+    soft_heat_band_weights: dict[str, float] = {"0.55": 0.10, "0.60": 0.25, "0.65": 0.50}
 
     # IDF-weighted keyword overlap — a second, entity-independent lexical
     # signal for verify_compatibility()'s FAIL_OPEN branch (new_tokens from
