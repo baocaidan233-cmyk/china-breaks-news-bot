@@ -59,6 +59,7 @@ import random
 import re
 import sys
 import time
+from urllib.parse import urlparse
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -128,6 +129,14 @@ async def run_cycle(
     candidates = await fetch_all(config, sources)
     if not candidates:
         return
+    if config.blocked_domains:
+        def _blocked(url: str) -> bool:
+            host = (urlparse(url).hostname or "").lower()
+            return any(host == d or host.endswith("." + d) for d in config.blocked_domains)
+        kept = [c for c in candidates if not _blocked(c.url)]
+        if len(kept) != len(candidates):
+            logger.info("run_cycle: %d/%d dropped — blocked domain (%s)", len(candidates) - len(kept), len(candidates), ", ".join(config.blocked_domains))
+        candidates = kept
 
     # --- Layer 1: exact-duplicate URL-hash dedup (Redis) ---
     survivors = [c for c in candidates if await redis_store.claim_new(c.url_hash)]

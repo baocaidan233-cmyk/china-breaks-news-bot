@@ -577,6 +577,13 @@ class AppConfig(BaseModel):
     # was originally based on, but the current live system tightened it
     # to 3h too, confirmed 2026-09-06).
     max_publish_age_hours: int = 3
+    # 2026-09-26, the user's call: outlets whose articles are dropped the
+    # moment they are fetched, whichever feed carries them. Bloomberg and FT
+    # arrive through the "buzzing" aggregator alongside outlets that do
+    # publish (Yahoo Finance, Ars Technica), so the feed stays and these two
+    # are filtered by link instead. Over 2026-09-19..26 they reached the
+    # candidate pool 26 and 8 times and published nothing -- paywalled.
+    blocked_domains: list[str] = []
     poll_interval_seconds: int = 600
     cycle_timeout_seconds: int = 540  # 9 min — hard-cuts a stuck cycle so the next one always starts on schedule (main.py and main_publish.py loops both apply this, independently) — AM1ST's own real-world-derived value, inherited
     alert_cooldown_seconds: int = 21600
