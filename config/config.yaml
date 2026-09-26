@@ -231,6 +231,6 @@ dynamic_publish:
 # comment — so that pairing doesn't apply here.)
 max_publish_age_hours: 3
 poll_interval_seconds: 600  # 10 minutes, matches AM1ST's own cadence
-blocked_domains: [bloomberg.com, ft.com]   # 2026-09-26 用户决定：这些媒体的链接一抓到就丢，不管哪条源带进来（付费墙，8 天 0 发布）
+blocked_domains: [bloomberg.com, ft.com, reuters.com, reut.rs]   # 2026-09-26 用户决定：这些媒体的链接一抓到就丢，不管哪条源带进来（彭博/FT 付费墙；路透直连 401、渲染也被反爬拦，8 天 0 发布）
 cycle_timeout_seconds: 540  # 9 min — hard-cuts a stuck cycle so the next one always starts on schedule; AM1ST's own real-world-derived value, inherited
 alert_cooldown_seconds: 21600  # 6h — don't re-@mention for a still-broken source every cycle
