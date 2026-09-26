@@ -476,6 +476,14 @@ class PublishConfig(BaseModel):
     # borderline first call; beyond that a flip is the judge being re-asked
     # until it slips, not a second opinion.
     posted_dedup_strikes_before_retire: int = 2
+    # 2026-09-26: matches ranked 2-5 by similarity are only judged at or above
+    # this caption cosine; the closest match keeps the full gray zone
+    # (heat.related_threshold up to posted_dedup_threshold). Measured on 74
+    # hand-labelled gray-zone pairs: 0.60-0.65 held 1 true duplicate in 19,
+    # 0.65-0.70 4 in 20, 0.70-0.75 7 in 16, 0.75-0.80 12 in 19. After the
+    # top-5 walk went live, every duplicate found below rank 1 scored
+    # 0.62-0.67 and every one checked was wrong.
+    posted_dedup_other_match_floor: float = 0.75
     max_widen_attempts: int = 3  # ported from AM1ST 2026-09-06 — how many batch_max-sized chunks of the eligible pool to try before accepting "nothing to publish this cycle" as real, not just "the first batch_max happened to all be duplicates"; each attempt costs a real extraction+content-gen pass, so this isn't unbounded search over the whole pool
     staleness_check_hours_floor: int = 72  # ported from AM1ST 2026-09-06 — agents/staleness_checker.py's LLM call only runs when event_first_seen_at is at least this old; reuses dedup.cross_cycle_window_hours' existing 72h convention rather than picking a new number, keeping this an infrequent extra cost rather than doubling the LLM calls made for every candidate
 

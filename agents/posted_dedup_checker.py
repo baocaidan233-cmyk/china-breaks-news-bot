@@ -131,6 +131,10 @@ async def find_publishable(
        posted point written before its source text was stored falls back to
        captions too.
 
+    2026-09-26: ranks 2-5 are only put to the judge at cosine >=
+    publish.posted_dedup_other_match_floor (0.75). The closest match keeps
+    the full gray zone.
+
     3. on_duplicate is awaited once per confirmed duplicate verdict. It is
        how main_publish.py retires a candidate that keeps coming back with
        the same verdict (3199 logged verdicts: 1855 re-judgments after a
@@ -141,6 +145,7 @@ async def find_publishable(
        failing callback never costs the cycle its publish."""
     threshold = config.publish.posted_dedup_threshold
     gray_zone_floor = config.heat.related_threshold  # 0.6 — same constant the ingestion-side gray zone uses
+    other_match_floor = config.publish.posted_dedup_other_match_floor  # 0.75 — see below
 
     for candidate in ranked_batch:
         comparisons: list[dict] = []
@@ -154,10 +159,18 @@ async def find_publishable(
             top = matches[0] if matches else None
             candidate_entities = entity_tokens(candidate_content) if matches else set()
 
-            for m in matches:
+            for rank, m in enumerate(matches):
                 if not m["url"]:
                     continue
                 similarity = m["score"]
+                # 2026-09-26: below the closest match, only a strong
+                # similarity is worth a judge call. Every extra call is one
+                # more chance for the judge to wrongly say "same": in the
+                # first 19 hours of the top-5 walk, all the duplicates it
+                # found at ranks 2-5 scored 0.62-0.67, and every one checked
+                # was a different story. See PublishConfig.
+                if rank > 0 and similarity < other_match_floor:
+                    continue
                 matched_content = content_for_embedding(m["content"], m["url"])
                 cosine_flagged = similarity > threshold
                 matched_entities: set[str] = set()
