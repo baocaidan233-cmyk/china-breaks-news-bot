@@ -84,6 +84,7 @@ openai:
   score_threshold: 5.0
 
 dedup:
+  cross_cycle_gray_floor: 0.70   # 2026-09-26 跨轮查重：0.70 以下不再丢；0.70–0.80 只有共享关键数字/标题几乎一样才丢
   semantic_threshold: 0.8  # cosine similarity, both intra-batch and cross-cycle layers — standing dedup architecture default, unchanged from AM1ST, not independently recalibrated for China Breaks yet
 
 entity_verifier:

@@ -104,7 +104,7 @@ async def find_publishable(
     `looks_similar` was False and neither has_date_conflict() nor
     same_event() ever got a chance to weigh in — both got published as
     separate posts 37 minutes apart. Same root cause and same fix shape as
-    core/event_identity.py's is_cross_cycle_duplicate() (built the same day
+    core/event_identity.py's cross_cycle_verdict() (built the same day
     for the ingestion side): a near-miss cosine score with real entity
     overlap still deserves the real adjudication tier below, not an
     automatic "not similar enough, keep it." This only widens WHEN to ask

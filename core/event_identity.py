@@ -922,12 +922,13 @@ _BOILERPLATE = [
 # signals worked below 0.70 -- which is why the event store no longer merges
 # there at all. See main.py's event-match walk.
 _OPINION_RE = re.compile(
-    r"\b(opinion|analysis|column|commentary|editorial|explainer|why|how|what)\b"
+    r"\b(opinion|analysis|column|commentary|editorial|explainer)\b"
+    r"|^\W*(why|how|what)\b"   # only a title that OPENS with it; "investigating how F-35 parts went missing" is a report
     r"|評論|评论|觀察|观察|分析|社論|社评|专家|學者|\?|？",
     re.IGNORECASE,
 )
 _KEY_NUMBER_RE = re.compile(
-    r"(?<![\w.])(\d{1,3}(?:[,.]\d{3})+|\d+(?:\.\d+)?)\s*"
+    r"(?<![A-Za-z0-9.])(\d{1,3}(?:[,.]\d{3})+|\d+(?:\.\d+)?)\s*"
     r"(%|percent|million|billion|trillion|万|亿|億|km|tons?|吨|人|名|架|艘|枚)?",
     re.IGNORECASE,
 )
@@ -942,25 +943,33 @@ def is_opinion_title(text: str) -> bool:
     return bool(_OPINION_RE.search(_title_line(text)))
 
 
+# Model designations ("F-35", "J-20", "Type 095", "095型") name a weapon, not
+# an event -- two different stories about the F-35 both carry "35".
+_DESIGNATOR_RE = re.compile(r"(?<![A-Za-z])[A-Z][A-Za-z]{0,3}-\d+[A-Za-z]?|(?<![A-Za-z])[A-Z]{1,3}\d{2,}[A-Za-z]?(?![A-Za-z])|\bType\s?\d+|\d+\s?型")
+
+
 def _key_numbers(text: str) -> set[str]:
-    """Salient figures -- amounts, counts, percentages. Years and bare small
-    numbers (days of the month, "two officials") are left out: they recur
-    across unrelated stories."""
+    """Salient figures in the TITLE -- amounts, counts, percentages. Only the
+    title: some feeds' descriptions carry a sidebar of other headlines and
+    link ids (Newtalk's does), which put the same "48架" into every article
+    from that outlet. Years, bare small numbers (days of the month, "two
+    officials"), long bare ids and model designations are left out."""
+    title = _DESIGNATOR_RE.sub(" ", _title_line(_strip_html(text or "")))
     out = set()
-    for num, unit in _KEY_NUMBER_RE.findall(text or ""):
+    for num, unit in _KEY_NUMBER_RE.findall(title):
         raw = num.replace(",", "")
         try:
             value = float(raw)
         except ValueError:
             continue
-        if not unit and (1990 <= value <= 2035 or value <= 31):
+        if not unit and (1990 <= value <= 2035 or value <= 31 or len(raw) >= 6):
             continue
         out.add(raw + (unit or "").lower())
     return out
 
 
 def _title_char_ngrams(text: str, n: int = 4) -> set[str]:
-    t = re.sub(r"\s+", " ", _title_line(text).lower())
+    t = re.sub(r"\s+", " ", _title_line(_strip_html(text or "")).lower())
     return {t[i:i + n] for i in range(max(0, len(t) - n + 1))}
 
 
@@ -1408,55 +1417,39 @@ def extract_event_frame(text: str) -> dict:
     return empty
 
 
-def is_cross_cycle_duplicate(
-    candidate_text: str, matched_text: str, cosine_score: float, semantic_threshold: float, related_threshold: float,
-) -> bool:
-    """Cross-cycle "is this candidate a duplicate of the most similar thing
-    already in the last N hours' embedding cache" call — 2026-09-07,
-    replacing a bare `cosine_score >= semantic_threshold` cutoff with the
-    same entity+date second opinion this module already applies elsewhere
-    (verify_compatibility()'s entity overlap, has_date_conflict()).
+def cross_cycle_verdict(
+    candidate_text: str, matched_text: str, cosine_score: float, semantic_threshold: float, gray_floor: float,
+) -> tuple[bool, str]:
+    """Is this candidate a duplicate of the most similar item already in the
+    candidate pool's embedding cache? Returns (is_duplicate, reason).
 
-    Real miss this closes: two real articles about the literal same event
-    (Xi Jinping's planned September business-delegation visit to
-    Washington, one via storm.mg, one via newtalk.tw, 48 minutes apart —
-    almost certainly different ingestion cycles, so intra-batch clustering
-    never got a chance to compare them directly) scored a REAL cosine of
-    0.795 against each other — 0.005 below the 0.8 cutoff this function
-    replaces. A single hard threshold has no way to recover from being
-    this close; entity overlap does, without needing the threshold itself
-    lowered (which would risk merging two textually-similar but genuinely
-    different stories instead).
+    2026-09-26, rewritten from measurement. The gray zone used to drop any
+    candidate sharing one named entity with its nearest cached item, and in a
+    China feed nearly every pair shares "China", "Xi" or "Trump": 87% of all
+    gray-zone comparisons ended in a drop -- 1,900 articles in four days,
+    never scored, never seen by the publish side. Read by hand, 50 real
+    drops: below 0.70 20 of 20 were different stories, 0.70-0.75 8 of 10,
+    0.75-0.80 6 of 10. On the 190 labelled gold pairs the same rule was 72%
+    wrong at 0.60-0.70. IDF-weighting the shared entities did not help
+    (AUC 0.51-0.61 inside the band); cleaning the embedded text did not
+    change separation either.
 
-    - score >= semantic_threshold: near-verbatim duplicate, high enough
-      confidence that no second opinion is needed (unchanged behavior).
-    - score < related_threshold: not similar enough to be worth checking
-      further (unchanged behavior — this was already the "new_cluster"
-      case for intra-batch clustering, i.e. genuinely a different story).
-    - related_threshold <= score < semantic_threshold ("gray zone", not
-      resolved by cosine alone): a date conflict (has_date_conflict — e.g.
-      two different days' mortgage-rate reports) or a clearly different
-      extracted action/event_type (two ENGLISH articles only — CJK
-      extract_event_frame() always returns empty, per its own is_english()
-      gate, so this half of the check silently no-ops for the exact
-      cross-lingual case that motivated this fix, same fail-open
-      convention as the rest of this module) rules OUT a duplicate
-      regardless of entity overlap; otherwise, any shared entity token
-      (person, place, org) between the two texts is treated as a duplicate.
-      Zero entity overlap in the gray zone means "not similar enough to
-      confirm" — same fail-open bias as verify_compatibility()'s own
-      NO_OVERLAP path elsewhere in this module.
-    """
+    - score >= semantic_threshold: duplicate (unchanged).
+    - score < gray_floor (0.70): not a duplicate -- let it be scored; if it
+      is a repeat, the publish-side check sees it.
+    - in between: a date conflict keeps it; a shared key figure or
+      near-identical title wording drops it (gold 0.70-0.80: 4 fired, 4
+      same); anything else is kept."""
     if cosine_score >= semantic_threshold:
-        return True
-    if cosine_score < related_threshold:
-        return False
+        return True, "cosine"
+    if cosine_score < gray_floor:
+        return False, "below_gray_floor"
     if has_date_conflict(candidate_text, matched_text):
-        return False
-    frame_a, frame_b = extract_event_frame(candidate_text), extract_event_frame(matched_text)
-    if frame_a["event_type"] and frame_b["event_type"] and frame_a["event_type"] != frame_b["event_type"]:
-        return False
-    return bool(entity_tokens(candidate_text) & entity_tokens(matched_text))
+        return False, "date_conflict"
+    evidence = strong_same_event_evidence(candidate_text, matched_text)
+    if evidence:
+        return True, evidence
+    return False, "no_strong_evidence"
 
 
 class HubIndex:

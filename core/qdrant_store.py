@@ -110,7 +110,7 @@ class QdrantStore:
         logged at ERROR level the whole time, unnoticed until this audit
         actually went looking. Net effect: cross-cycle semantic dedup has
         been fully inert this entire time — every candidate always got
-        cosine_score=0.0, which is_cross_cycle_duplicate() correctly reads
+        cosine_score=0.0, which cross_cycle_verdict() correctly reads
         as "not a duplicate" (0.0 is always < related_threshold), so
         nothing was ever caught at this layer, no matter how similar to
         recent content. This is the EXACT same bug EventStore.
@@ -150,7 +150,7 @@ class QdrantStore:
 
         2026-09-07: now returns the matched text too (was score-only,
         with_payload=False) — core/event_identity.py's
-        is_cross_cycle_duplicate() needs it for an entity/date second
+        cross_cycle_verdict() needs it for an entity/date second
         opinion in the gray zone below the hard duplicate cutoff; see that
         function's docstring for the real cosine-0.795-vs-0.8 miss this
         closes."""

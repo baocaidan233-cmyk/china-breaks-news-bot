@@ -71,7 +71,7 @@ from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
 from core.config import load_config
-from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, is_cross_cycle_duplicate, is_offtopic_url_section, log_decision, no_conflicting_specifics, opinion_mismatch, strong_same_event_evidence, verify_compatibility
+from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, cross_cycle_verdict, is_offtopic_url_section, log_decision, no_conflicting_specifics, opinion_mismatch, strong_same_event_evidence, verify_compatibility
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
@@ -606,12 +606,12 @@ async def run_cycle(
             # storm.mg, one via newtalk.tw, ~48 minutes apart — almost
             # certainly different ingestion cycles, so intra-batch
             # clustering never got to compare them) scored a real cosine of
-            # 0.795, just under the 0.8 cutoff. is_cross_cycle_duplicate()
+            # 0.795, just under the 0.8 cutoff. cross_cycle_verdict()
             # adds the same entity/date second opinion this module already
             # applies elsewhere instead of trusting a single raw number in
             # that gray zone — see its own docstring in core/event_identity.py.
             candidate_text = event_identity_text(c.title, c.description)
-            is_dup = is_cross_cycle_duplicate(candidate_text, matched_content, best_score, threshold, related_threshold)
+            is_dup, dup_reason = cross_cycle_verdict(candidate_text, matched_content, best_score, threshold, config.dedup.cross_cycle_gray_floor)
             # 2026-09-22 — this branch previously logged NOTHING. It is the only
             # dedup stage in this bot with no record at all: a field-occurrence
             # scan of event_identity_decisions.jsonl found prefilter_reject,
@@ -633,6 +633,8 @@ async def run_cycle(
                     "threshold": threshold,
                     "related_threshold": related_threshold,
                     "final_verdict": "duplicate" if is_dup else "kept",
+                    "resolved_by": dup_reason,
+                    "gray_floor": config.dedup.cross_cycle_gray_floor,
                     "candidate_text": candidate_text,
                     "matched_text": matched_content,
                 })
