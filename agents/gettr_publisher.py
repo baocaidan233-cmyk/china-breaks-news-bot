@@ -7,6 +7,7 @@ import time
 import httpx
 
 from core.config import AppConfig
+from core.caption_guard import former_president_violation
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,21 @@ class GettrPublisher:
             return "dry-run-post-id"
 
         payload = self._build_payload(text, prev_desc, prev_img, prev_src_link, prev_ttl, media)
+
+        # Last gate before the post leaves this process. Donald Trump is the
+        # sitting president, and a caption calling him a former one cannot go
+        # out under this channel's name whatever else is right about it.
+        # Checked on the payload rather than at each caller because every
+        # publish path in this bot funnels through here, so nothing can reach
+        # Gettr around it. See core/caption_guard.py for the patterns and for
+        # what it deliberately leaves alone.
+        violation = former_president_violation(payload.get("txt", "") or "")
+        if violation:
+            logger.error(
+                "GettrPublisher: caption blocked by caption_guard rule %s — not publishing",
+                violation,
+            )
+            return None
         headers = {"x-app-auth": json.dumps({"user": gettr.user_id, "token": gettr.user_token})}
         files = {"content": (None, json.dumps(payload))}
 
