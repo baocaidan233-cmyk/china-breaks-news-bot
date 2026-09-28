@@ -452,6 +452,22 @@ class ExtractionConfig(BaseModel):
     timeout_seconds: int = 20
     min_text_length: int = 200  # below this, treat extraction as failed (bot-block/JS-wall pages are usually a few dozen chars)
 
+    # Whether a failed plain fetch is retried with the headless browser even
+    # for a domain not on _BROWSER_REQUIRED_DOMAINS.
+    #
+    # AM1ST solves this with a failure counter: plain, plain, then browser on
+    # the third and last attempt. That is not available here, because this bot
+    # calls mark_extraction_failed() on the FIRST failure — a candidate gets
+    # exactly one attempt, so there is no second one to escalate on. The same
+    # protection therefore has to happen inside that single attempt: if httpx
+    # could not get the article, try the one client that might, before giving
+    # up on it permanently.
+    #
+    # Affordable at this volume: measured 2026-09-28 over ~15 hours, this bot
+    # fails extraction on the order of tens of articles a day, so this is tens
+    # of browser launches a day, not hundreds. Set false if that changes.
+    browser_on_failure: bool = True
+
 
 class GettrConfig(BaseModel):
     user_id: str = ""  # env: GETTR_USER_ID — leave blank; the real live channel's identity (username "chinabreaks", userId "gettrfoodofficial") is documented in README as reference info only, never as a committed value

@@ -215,7 +215,11 @@ class Extractor:
         text = await asyncio.to_thread(trafilatura.extract, html) if html else None
 
         used_browser = False
-        if (not text or len(text) < extraction.min_text_length) and _needs_browser(url):
+        # A blocked site is indistinguishable from a broken one at this point,
+        # and the only thing left to vary is the client. See
+        # ExtractionConfig.browser_on_failure.
+        browser_worth_trying = _needs_browser(url) or extraction.browser_on_failure
+        if (not text or len(text) < extraction.min_text_length) and browser_worth_trying:
             used_browser = True
             html = await self._fetch_browser(url, headers)
             # trafilatura's parsing is CPU-bound, synchronous — offload so
