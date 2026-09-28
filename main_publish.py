@@ -280,6 +280,35 @@ async def run_cycle(
         tried_ids = {c.page_id for c in batch}
         remaining = [c for c in remaining if c.page_id not in tried_ids]
 
+        # Cheap feasibility pass, before extraction and writing. See
+        # PublishConfig.batch_event_dedup_cosine.
+        if config.publish.batch_event_dedup_cosine > 0:
+            kept = []
+            for c in batch:
+                try:
+                    matched = await event_store.peek(
+                        await embedder.embed(f"{c.title}\n{c.description}"[:6000]))
+                except Exception:
+                    logger.exception(
+                        "run_cycle: pre-batch event dedup failed for %s — keeping it", c.url)
+                    kept.append(c)
+                    continue
+                score = (matched or {}).get("_score", 0.0)
+                if matched and matched.get("published") and score >= config.publish.batch_event_dedup_cosine:
+                    logger.info(
+                        "run_cycle: %s dropped before extraction — this event was already published "
+                        "(cosine %.3f), saving a fetch and a caption", c.url, score)
+                    continue
+                kept.append(c)
+            dropped = len(batch) - len(kept)
+            batch = kept
+            if dropped:
+                logger.info("run_cycle: widen attempt %d — %d of the batch were already-published events",
+                            attempt, dropped)
+            if not batch:
+                logger.info("run_cycle: widen attempt %d — every candidate was an already-published event", attempt)
+                continue
+
         generated = []
         for c in batch:
             text = await extractor.extract(c.url, sources)
