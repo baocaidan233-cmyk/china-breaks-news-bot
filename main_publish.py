@@ -352,7 +352,7 @@ async def run_cycle(
             # in both AM1ST and Market Watcher).
             post_content = await caption_cache.get(c.url_hash)
             if post_content is None:
-                post_content = await writer.write(c.title, c.content, context=background, is_opinion=is_opinion)
+                post_content = await writer.write(c.title, c.content, context=background, is_opinion=is_opinion, published_at=c.published_at)
                 if not Writer.is_no_comment(post_content):
                     await caption_cache.set(c.url_hash, post_content)
 
