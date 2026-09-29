@@ -681,7 +681,14 @@ async def run_cycle(
             c.llm_comment = score_output.llm_comment
             passed = c.llm_score >= config.openai.score_threshold
             if not passed:
-                logger.info("run_cycle: %s scored %.1f, below threshold", c.url, c.llm_score)
+                # The title is here so a rejected candidate leaves a usable
+                # (title, score) pair behind. AM1ST has carried it since
+                # 2026-09-28; without it the only labelled rows this channel
+                # produces are the ones that passed, and a filter that has to
+                # decide before the Scorer runs cannot be trained on those
+                # alone -- it never sees a negative.
+                logger.info("run_cycle: %s scored %.1f, below threshold — %s",
+                            c.url, c.llm_score, (c.title or "")[:160])
             scored.append((c, embedding, cluster_idx, passed))
         except Exception:
             logger.exception("run_cycle: unhandled error scoring %s, skipping this item", c.url)
