@@ -75,9 +75,36 @@ _BROWSER_REQUIRED_DOMAINS = (
 # detection-only: recognize the teaser text and alert, same channel as
 # every other extraction failure, rather than silently treating marketing
 # copy as if it were the article.
+#
+# Widened 2026-09-29 after AM1ST published five Washington Examiner articles
+# written from nothing but their opening two paragraphs. Its wall reads "Join
+# Washington Examiner for unlimited access", which misses "try unlimited
+# access" by one word, and one of those five inverted the article's argument:
+# a 7382-character op-ed blaming the Pentagon's procurement bureaucracy
+# reached the writer as 1060 characters of Trump-Xi framing, so the caption
+# attacked the president the piece was not about. The user deleted it.
+#
+# Two signals, because neither works alone. Measured on this channel's own 89
+# published articles (2026-09-29): the body runs 410 characters at the short
+# end and 2190 at the median, and 36% of it is Chinese, Japanese or Korean
+# where the median article is only 1040 characters — no length cut can mean
+# "truncated" here. Subscription wording alone flags a complete article that
+# merely closes with a marketing footer. A pitch inside the last 400
+# characters AND a body under 2500 flagged 0 of those 89, and the shortest
+# ones are genuinely whole: wire copy closing on an editor's sign-off
+# （編輯：廖文綺）. So this catches nothing today and costs nothing; it is here
+# because this channel shares sources with AM1ST, where the same rule flagged
+# 6 of 197 and every one was a real truncation.
 _PAYWALL_TEASER_SIGNALS = (
-    "subscribe to unlock this article",
-    "try unlimited access",
+    "unlimited access",
+    "subscribe to unlock",
+    "already a member",
+    "sign in to continue",
+    "create a free account",
+    "register to continue",
+    "this article is for subscribers",
+    "start your free trial",
+    "become a member",
     "complete digital access to quality",
     # 2026-09-08: Digitimes' own teaser phrase — real production waste
     # found via a token-cost audit: two Digitimes articles (LEO-satellite
@@ -88,11 +115,20 @@ _PAYWALL_TEASER_SIGNALS = (
     # there was no real article and returned "No comment."
     "the article requires paid subscription",
 )
+_TEASER_TAIL_CHARS = 400
+_TEASER_MAX_LENGTH = 2500
 
 
 def _looks_like_paywall_teaser(text: str) -> bool:
-    lowered = text.lower()
-    return any(signal in lowered for signal in _PAYWALL_TEASER_SIGNALS)
+    """Whether this is the top of an article plus the wall, not the article.
+
+    The pitch has to sit at the END, where the text was cut off. A complete
+    article that closes with a subscription footer is still complete, which
+    is what the length bound is for."""
+    if len(text) >= _TEASER_MAX_LENGTH:
+        return False
+    tail = text[-_TEASER_TAIL_CHARS:].lower()
+    return any(signal in tail for signal in _PAYWALL_TEASER_SIGNALS)
 
 
 def _domain_matches(netloc: str, domain: str) -> bool:
@@ -214,12 +250,18 @@ class Extractor:
         html = await self._fetch_plain(url, headers)
         text = await asyncio.to_thread(trafilatura.extract, html) if html else None
 
+        too_thin = not text or len(text) < extraction.min_text_length
+        # A recognised teaser earns a render whatever the domain: nothing else
+        # in this function can turn a truncated article back into the article,
+        # and the detector above flagged 0 of this channel's own 89 published
+        # articles, so it cannot send anything here that was already whole.
+        truncated = bool(text) and _looks_like_paywall_teaser(text)
         used_browser = False
         # A blocked site is indistinguishable from a broken one at this point,
         # and the only thing left to vary is the client. See
         # ExtractionConfig.browser_on_failure.
         browser_worth_trying = _needs_browser(url) or extraction.browser_on_failure
-        if (not text or len(text) < extraction.min_text_length) and browser_worth_trying:
+        if (too_thin and browser_worth_trying) or truncated:
             used_browser = True
             html = await self._fetch_browser(url, headers)
             # trafilatura's parsing is CPU-bound, synchronous — offload so
@@ -235,10 +277,14 @@ class Extractor:
             return None
 
         if _looks_like_paywall_teaser(text):
+            # Still the wall after rendering, so the article is out of reach.
+            # Dropping is the point: a caption written from the top of an
+            # article is not a shorter version of it, it is a different claim.
             await self._fail(
                 url,
                 source,
-                f"extracted text is a paywall teaser, not the article ({len(text)} chars)",
+                f"extracted text is a paywall teaser, not the article "
+                f"({len(text)} chars{', even after rendering' if used_browser else ''})",
                 alert_message=f"抓到的内容像是付费墙提示文案，cookie可能已过期，需要手动更新: {url}",
             )
             return None
