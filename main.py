@@ -77,6 +77,7 @@ from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
 from core.notion_sources import load_rss_sources
+from core.roundup import roundup_rule
 from core.qdrant_store import EventStore, QdrantStore, ensure_collection_with_retry
 from core.redis_store import RedisStore
 
@@ -141,6 +142,25 @@ async def run_cycle(
     # --- Layer 1: exact-duplicate URL-hash dedup (Redis) ---
     survivors = [c for c in candidates if await redis_store.claim_new(c.url_hash)]
     logger.info("run_cycle: %d/%d new after URL-hash dedup", len(survivors), len(candidates))
+    if not survivors:
+        return
+
+    # --- Layer 1.5: no digests, rolling live pages or link lists
+    # (2026-09-29, core/roundup.py) — user rule: a post has to be about one
+    # thing, and a page that is several unrelated stories cannot be written
+    # into one caption without the caption picking one and dropping the rest.
+    # First, so a dropped page costs not even the og:description fetch. ---
+    before_roundup = len(survivors)
+    kept = []
+    for c in survivors:
+        rule = roundup_rule(c.title or "", c.url)
+        if rule:
+            logger.info("run_cycle: %s dropped — %s (%s)", c.url, rule, (c.title or "")[:120])
+        else:
+            kept.append(c)
+    survivors = kept
+    if len(survivors) != before_roundup:
+        logger.info("run_cycle: %d/%d survive the roundup filter", len(survivors), before_roundup)
     if not survivors:
         return
 
