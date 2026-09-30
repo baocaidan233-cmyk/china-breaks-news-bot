@@ -7,3 +7,6 @@ logs/
 .venv/
 ._*
 n8n_chinabreaks_pipelines/
+
+# 预判模型：每个频道用自己的数据训，不进仓库
+models/

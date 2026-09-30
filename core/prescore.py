@@ -1,0 +1,155 @@
+"""Embedding pre-score (2026-09-30) — skips the Scorer, and everything
+between it and here, for a candidate whose title is very unlikely to reach
+the pool gate.
+
+Ported from AM1ST, where it has run since 2026-09-29. The mechanism is the
+same and every number is this channel's own: the model is fitted on this
+channel's logged scores, and the threshold is the lowest out-of-fold
+probability among its own rows at its own gate, so nothing in the training
+window would have been skipped.
+
+Two things matter more here than they did there. This channel is multilingual,
+so title_word_count below counts two CJK characters as one unit -- a single
+\\w+ count reads a whole Chinese headline as one or two "words" and would have
+sent 12.9% of this channel's titles down the short-title pass-through, the
+most substantial ones among them. And the pool gate is the same 5.0, but the
+material reaching it is wire copy that runs a few hundred characters, so the
+model has less text to judge from than AM1ST's does.
+
+Kept from AM1ST deliberately: the threshold is a minimum and not a percentile,
+so a mislabelled row can only make it skip less; every safety layer can only
+keep a candidate; an unreadable model file skips nothing; and a fixed share of
+candidates, chosen by url_hash before the model looks, is always scored so
+that P(skipped | reaches the gate) can be measured at all -- a skipped
+candidate has no score, so no other sample can say what a skip costs."""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import math
+import re
+import time
+from pathlib import Path
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+def log_prescore_decision(path: str, record: dict) -> None:
+    """One JSON line per verdict. The audit cohort's rows are the whole point
+    of keeping this: tools/prescore_report.py joins them by URL to the score
+    the Scorer went on to give, and that join is the only way to see what a
+    skip would have cost. Best-effort — a logging failure must never take the
+    ingestion cycle down."""
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"logged_at": int(time.time()), **record}, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.exception("log_prescore_decision: could not write %s", path)
+
+# Counted separately because \w matches a CJK character, so a whole Chinese
+# headline comes back as one or two "words". Measured 2026-09-29 on real
+# titles from all three channels: with a single \w+ count, a title of four or
+# fewer units covered 2.3% of this channel's candidates but 12.9% of China
+# Breaks' and 18.0% of Market Watcher's -- and the ones it caught there were
+# the most informative headlines they had, e.g.
+# "媒体：欧盟五国将于2027年启动将非法移民遣送至第三国的试点项目" at two "words".
+# Porting the number without porting the counter would have inverted the rule
+# in exactly the channels it was ported to.
+_CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]")
+# CJK is taken out of the string first, so this stays \w and keeps counting
+# Cyrillic, Greek and Arabic. Naming the Latin ranges explicitly instead
+# scored every Russian headline at zero, which is the same mistake in the
+# other direction and is why this is measured on all three channels' real
+# titles, not on the one it was written for.
+_WORD = re.compile(r"[\wÀ-ɏ'’-]+")
+
+
+def title_word_count(title: str) -> int:
+    """Units of meaning in a title, comparable across writing systems.
+
+    Two CJK characters count as one unit: Chinese, Japanese and Korean words
+    run one to three characters, so this lands a CJK headline in the same
+    range a space-delimited one of the same substance occupies."""
+    text = title or ""
+    cjk = len(_CJK.findall(text))
+    words = len(_WORD.findall(_CJK.sub(" ", text)))
+    return words + (cjk + 1) // 2
+
+
+class PreScorer:
+    def __init__(self, config) -> None:
+        cfg = config.prescore
+        self.enabled = False
+        self.audit_rate = cfg.audit_rate
+        self.min_title_words = cfg.min_title_words
+        self._ref: np.ndarray | None = None
+        self.ood_cut: float | None = None
+        self.version = "?"
+        if not cfg.enabled:
+            return
+        try:
+            path = Path(cfg.model_file)
+            model = json.loads(path.read_text(encoding="utf-8"))
+            self._w = np.asarray(model["w"], dtype=np.float32)
+            self._b = float(model["b"])
+            self.threshold = float(model["threshold"])
+            self.version = model.get("version", "?")
+            if model.get("ood_ref_file") and model.get("ood_cut") is not None:
+                ref = np.load(path.parent / model["ood_ref_file"]).astype(np.float32) / 127.0
+                self._ref = ref / np.maximum(np.linalg.norm(ref, axis=1, keepdims=True), 1e-9)
+                self.ood_cut = float(model["ood_cut"])
+            self.enabled = True
+            logger.info("PreScorer: loaded %s (threshold %.4f, trained on %s rows, OOD reference %s)",
+                        self.version, self.threshold, model.get("n_train"),
+                        "on" if self._ref is not None else "OFF")
+        except Exception:
+            logger.exception("PreScorer: model %s not usable — pre-score disabled, every candidate is scored",
+                             cfg.model_file)
+
+    def probability(self, title_embedding) -> float:
+        z = float(np.dot(self._w, np.asarray(title_embedding, dtype=np.float32))) + self._b
+        return 1.0 / (1.0 + math.exp(-z))
+
+    def in_audit(self, url_hash: str) -> bool:
+        """Deterministic per candidate, and decided before the model looks."""
+        return int(hashlib.sha1(url_hash.encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF < self.audit_rate
+
+    def nearest_similarity(self, title_embedding) -> float | None:
+        if self._ref is None:
+            return None
+        v = np.asarray(title_embedding, dtype=np.float32)
+        v = v / max(float(np.linalg.norm(v)), 1e-9)
+        return float(np.max(self._ref @ v))
+
+    def decide(self, url_hash: str, title: str, title_embedding) -> tuple[str, dict]:
+        """Returns (decision, detail). Everything except "skip" is scored.
+
+        "pass"              the model does not want to skip it
+        "audit_would_skip"  audit cohort; the model would have skipped it
+        "audit_pass"        audit cohort; the model would not have
+        "keep_short_title"  too few words to judge a story by
+        "keep_ood"          nothing in training looks like this
+        "skip"              not scored
+        """
+        p = self.probability(title_embedding)
+        detail: dict = {"prescore_p": round(p, 4)}
+        would_skip = p < self.threshold
+        if self.in_audit(url_hash):
+            return ("audit_would_skip" if would_skip else "audit_pass"), detail
+        if not would_skip:
+            return "pass", detail
+        # The title is what this layer judges on, so a title with nothing in
+        # it is a reason to defer to the Scorer, which can see the description.
+        if title_word_count(title) <= self.min_title_words:
+            return "keep_short_title", detail
+        sim = self.nearest_similarity(title_embedding)
+        if sim is not None:
+            detail["nn_sim"] = round(sim, 4)
+            if sim < self.ood_cut:
+                return "keep_ood", detail
+        return "skip", detail

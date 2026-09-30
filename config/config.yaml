@@ -234,3 +234,17 @@ poll_interval_seconds: 600  # 10 minutes, matches AM1ST's own cadence
 blocked_domains: [bloomberg.com, ft.com, reuters.com, reut.rs]   # 2026-09-26 用户决定：这些媒体的链接一抓到就丢，不管哪条源带进来（彭博/FT 付费墙；路透直连 401、渲染也被反爬拦，8 天 0 发布）
 cycle_timeout_seconds: 540  # 9 min — hard-cuts a stuck cycle so the next one always starts on schedule; AM1ST's own real-world-derived value, inherited
 alert_cooldown_seconds: 21600  # 6h — don't re-@mention for a still-broken source every cycle
+
+prescore:
+  # 打分前的向量预判，见 core/prescore.py。省掉的不只是打分调用——
+  # 补描述、聚类、事件判重（含 LLM 判官）都在它后面。
+  # 模型用本频道自己的打分记录训练，门槛取「训练集里所有过入池线的稿的
+  # 样本外概率最小值」，即训练窗口内一条都不会被跳过。
+  enabled: false
+  model_file: models/prescore.json
+  log_path: logs/prescore_decisions.jsonl
+  # 上线首日 0.3，为的是当天就能读出漏杀率；压到 1% 以下后降到 0.1。
+  audit_rate: 0.3
+  # 标题少于等于这么多「词」一律照常打分。两个 CJK 字符算一个词，
+  # 否则整串中文会被当成一两个词（本频道实测误命中 13%-16%）。
+  min_title_words: 6

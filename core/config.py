@@ -592,6 +592,33 @@ class DynamicPublishConfig(BaseModel):
 
 
 
+class PreScoreConfig(BaseModel):
+    """core/prescore.py — the embedding pre-score at main.py's Layer 1.55.
+
+    Fitted on this channel's own logged scores; the threshold is the lowest
+    out-of-fold probability among its own rows at its own gate, so nothing in
+    the training window would have been skipped. Every candidate it skips also
+    costs no og:description fetch, no clustering embed and no event-store
+    dedup, because all three run after it and before the Scorer.
+
+    audit_rate is the share of ALL candidates, fixed by url_hash before the
+    model looks, that is scored whatever the model says. It is the only
+    unbiased measurement of what skipping costs: a skipped candidate never
+    gets a score, so no other sample can say what was lost. It starts high so
+    the first reading arrives the same day, and drops to 0.1 once the miss
+    rate is bounded; on AM1ST that took one day.
+
+    min_title_words sends a title of that many units or fewer to the Scorer
+    untouched, a unit being a word or two CJK characters. A title this short
+    cannot be judged by a layer that only sees titles."""
+
+    enabled: bool = False
+    model_file: str = "models/prescore.json"
+    log_path: str = "logs/prescore_decisions.jsonl"
+    audit_rate: float = 0.3
+    min_title_words: int = 6
+
+
 class AppConfig(BaseModel):
     notion: NotionConfig = Field(default_factory=NotionConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
@@ -601,6 +628,7 @@ class AppConfig(BaseModel):
     hot_topics: HotTopicsConfig = Field(default_factory=HotTopicsConfig)
     heat: HeatConfig = Field(default_factory=HeatConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
+    prescore: PreScoreConfig = Field(default_factory=PreScoreConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     gettr: GettrConfig = Field(default_factory=GettrConfig)
     publish: PublishConfig = Field(default_factory=PublishConfig)
