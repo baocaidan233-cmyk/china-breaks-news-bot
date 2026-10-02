@@ -249,8 +249,10 @@ prescore:
   enabled: true
   model_file: models/prescore.json
   log_path: logs/prescore_decisions.jsonl
-  # 上线首日 0.3，为的是当天就能读出漏杀率；压到 1% 以下后降到 0.1。
-  audit_rate: 0.3
+  # 上线首日 0.3，为的是当天就能读出漏杀率。10-02 用户定降到 0.1
+  # （当时审计组 150 条 ≥5 零漏，95% 上界 1.98%）：0.3 时模型想跳的稿
+  # 有三成照样打分，实际只省名义跳过量的七成。
+  audit_rate: 0.1
   # 标题少于等于这么多「词」一律照常打分。两个 CJK 字符算一个词，
   # 否则整串中文会被当成一两个词（本频道实测误命中 13%-16%）。
   min_title_words: 6
