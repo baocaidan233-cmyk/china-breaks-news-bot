@@ -617,6 +617,12 @@ class PreScoreConfig(BaseModel):
     log_path: str = "logs/prescore_decisions.jsonl"
     audit_rate: float = 0.3
     min_title_words: int = 6
+    # Set, it replaces the threshold stored in the model file. The model's
+    # own rule (lowest out-of-fold p among rows at the gate) is pinned by a
+    # handful of outliers and drifts down as data grows, so the operating
+    # point is chosen on the audit cohort instead and recorded here, in git,
+    # where a retrain cannot silently overwrite it.
+    threshold: float | None = None
 
 
 class AppConfig(BaseModel):

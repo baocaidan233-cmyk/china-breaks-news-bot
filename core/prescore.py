@@ -97,7 +97,7 @@ class PreScorer:
             model = json.loads(path.read_text(encoding="utf-8"))
             self._w = np.asarray(model["w"], dtype=np.float32)
             self._b = float(model["b"])
-            self.threshold = float(model["threshold"])
+            self.threshold = float(cfg.threshold if cfg.threshold is not None else model["threshold"])
             self.version = model.get("version", "?")
             if model.get("ood_ref_file") and model.get("ood_cut") is not None:
                 ref = np.load(path.parent / model["ood_ref_file"]).astype(np.float32) / 127.0
