@@ -678,6 +678,24 @@ _OFFTOPIC_SITE_SECTIONS = [
     ("theguardian.com", re.compile(r"^/commentisfree/")),
     ("inosmi.ru", re.compile(r"^/\d{8}/ukraina-\d+\.html")),
     ("themoscowtimes.com", re.compile(r"^/")),
+    # 2026-10-02: soft-content sections only -- sport, entertainment, culture,
+    # fluff Q&A, personal money, city pages. Each was scored 32-63 times over
+    # 2026-09-06..10-02 with nothing at 5 or above. Picking on zero passes
+    # alone does not hold up: chosen on data before 09-25, news, world,
+    # politics and business sections went on to pass 22 of 550 afterwards
+    # (The Hill's administration desk, Guardian US/UK news, Arab News world),
+    # while soft-content sections passed 0 of 90. So a zero-pass section that
+    # is a region or a beat stays scored, however clean it looks, and so does
+    # a format (New Yorker /magazine/ is long-form reporting on anything).
+    ("theguardian.com", re.compile(r"^/football/")),
+    ("koreatimes.co.kr", re.compile(r"^/(?:sports|lifestyle/people-events)/")),
+    ("ukrinform.ua", re.compile(r"^/rubric-sports/")),
+    ("elcomercio.pe", re.compile(r"^/(?:deporte-total|mag|respuestas)/")),
+    ("larepublica.pe", re.compile(r"^/espectaculos/")),
+    ("aif.ru", re.compile(r"^/(?:moscow|culture)/")),
+    ("oglobo.globo.com", re.compile(r"^/cultura/")),
+    ("bild.de", re.compile(r"^/unterhaltung/")),
+    ("dailymail.com", re.compile(r"^/money/")),
 ]
 
 
@@ -697,11 +715,15 @@ def is_offtopic_url_section(url: str) -> bool:
     before that function ever runs, so it can catch off-mission sections
     has_china_signal() alone would sometimes miss (a keyword collision
     inside a gossip piece)."""
-    if urlparse(url).netloc.lower() in _OFFTOPIC_URL_EXEMPT_DOMAINS:
-        return False
     if _XI_JINPING_URL_RE.search(url):
         return False
-    return bool(_OFFTOPIC_URL_RE.search(url)) or _offtopic_site_section(url)
+    if _offtopic_site_section(url):
+        return True
+    # The exemption is from the generic regex only: koreatimes files real
+    # cross-strait stories under /lifestyle/, but its /sports/ is sport.
+    if urlparse(url).netloc.lower() in _OFFTOPIC_URL_EXEMPT_DOMAINS:
+        return False
+    return bool(_OFFTOPIC_URL_RE.search(url))
 
 # NOTE on the three tables below (_ORG_ACRONYM_MAP, _KNOWN_GOV_ACRONYMS,
 # _ROLE_TITLE_MAP): the US-government entries are AM1ST's own content,
