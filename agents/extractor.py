@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from urllib.parse import urlparse
+import re
+from urllib.parse import quote, urlparse
 
 import httpx
 import trafilatura
@@ -157,6 +159,46 @@ def _needs_browser(url: str) -> bool:
     return any(_domain_matches(netloc, domain) for domain in _BROWSER_REQUIRED_DOMAINS)
 
 
+_GOOGLE_NEWS_ID = re.compile(r"news\.google\.com/(?:rss/articles|articles|read)/([^?/]+)")
+
+
+async def _resolve_google_news(url: str, timeout: float) -> str | None:
+    """The publisher's own URL behind a news.google.com link, or None.
+
+    2026-10-03: the landing page only redirects in client-side JS, and the
+    render service rarely got through it — Google News was 73 of 91
+    extraction failures over three days. The page itself carries a signature
+    (data-n-a-sg / data-n-a-ts) that Google's own batchexecute endpoint
+    trades for the real URL: two plain requests, no browser. Fetched through
+    /rss/articles/: from VM-02 the /articles/ form answers 429."""
+    m = _GOOGLE_NEWS_ID.search(url)
+    if not m:
+        return None
+    gid = m.group(1)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            page = await client.get(f"https://news.google.com/rss/articles/{gid}", headers=FETCH_HEADERS)
+            sg = re.search(r'data-n-a-sg="([^"]+)"', page.text)
+            ts = re.search(r'data-n-a-ts="([^"]+)"', page.text)
+            if not (sg and ts):
+                logger.info("Extractor: no Google News signature for %s (status %s)", url, page.status_code)
+                return None
+            req = ["garturlreq",
+                   [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None, None, None, 0, 1],
+                    "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0],
+                   gid, int(ts.group(1)), sg.group(1)]
+            body = "f.req=" + quote(json.dumps([[["Fbv4je", json.dumps(req)]]]))
+            resp = await client.post(
+                "https://news.google.com/_/DotsSplashUi/data/batchexecute", content=body,
+                headers={**FETCH_HEADERS, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"})
+            inner = json.loads(resp.text.split("\n\n")[1])[:-2]
+            real = json.loads(inner[0][2])[1]
+            return real if isinstance(real, str) and real.startswith("http") else None
+    except Exception as e:
+        logger.info("Extractor: Google News decode failed for %s (%s)", url, e)
+        return None
+
+
 class Extractor:
     """Full-text extraction — self-contained, no external service.
     Confirmed 2026-08-03: the previously-used internal extract-premium
@@ -240,8 +282,19 @@ class Extractor:
     async def extract(self, url: str, sources: list[RssSource]) -> str | None:
         """Returns the extracted main-content text, or None if extraction
         failed — caller decides the fallback (the RSS description)."""
-        source = _find_cookie_source(url, sources)
         extraction = self._config.extraction
+        if extraction.resolve_google_news and _GOOGLE_NEWS_ID.search(url):
+            real = await _resolve_google_news(url, extraction.timeout_seconds)
+            if real:
+                host = urlparse(real).netloc.lower()
+                # blocked_domains is applied to link domains at ingestion,
+                # where a Google News item is still news.google.com.
+                if any(host == d or host.endswith("." + d) for d in self._config.blocked_domains):
+                    logger.info("Extractor: %s resolves to blocked domain %s — dropping", url, host)
+                    return None
+                logger.info("Extractor: %s resolves to %s", url, real)
+                url = real
+        source = _find_cookie_source(url, sources)
 
         headers = dict(FETCH_HEADERS)
         if source and source.cookie:

@@ -467,6 +467,11 @@ class ExtractionConfig(BaseModel):
     # fails extraction on the order of tens of articles a day, so this is tens
     # of browser launches a day, not hundreds. Set false if that changes.
     browser_on_failure: bool = True
+    # 2026-10-03: decode a news.google.com link to the publisher's own URL
+    # before fetching (agents/extractor.py's _resolve_google_news). Google
+    # News was 73 of 91 extraction failures over three days; on 40 that had
+    # failed, decoding recovered 21 articles. Off restores render-only.
+    resolve_google_news: bool = True
 
 
 class GettrConfig(BaseModel):
