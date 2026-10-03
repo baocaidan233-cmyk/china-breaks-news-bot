@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from core.config import AppConfig
@@ -42,6 +45,7 @@ class Writer:
         self._client = create_openai_client(config)
         self._model = config.openai.chat_model
         self._system_prompt = Path(config.openai.content_gen_prompt_file).read_text(encoding="utf-8")
+        self._system_sha = hashlib.sha256(self._system_prompt.encode("utf-8")).hexdigest()[:12]
 
     async def write(self, title: str, article: str, context: str = "", is_opinion: bool = False, published_at=None) -> str:
         """`context` (2026-08-31) — optional prior-developments/related-
@@ -90,7 +94,24 @@ class Writer:
                 {"role": "user", "content": user_message},
             ],
         )
-        return (resp.choices[0].message.content or "").strip()
+        post = (resp.choices[0].message.content or "").strip()
+        self._log_call(title, article, context, is_opinion, published_at, post)
+        return post
+
+    def _log_call(self, title, article, context, is_opinion, published_at, post) -> None:
+        """One line per production call in logs/writer_calls.jsonl (2026-10-03),
+        the input side of any later prompt A/B: re-fetching sources weeks
+        later loses some to paywalls and edits. system_sha splits the log by
+        prompt version. Logging only — a failure here never touches the post."""
+        try:
+            row = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                   "system_sha": self._system_sha, "title": title, "article": article[:6000],
+                   "context": context, "is_opinion": is_opinion,
+                   "published_at": published_at.isoformat() if published_at else None, "post": post}
+            with open("logs/writer_calls.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
 
     @staticmethod
     def is_no_comment(text: str) -> bool:
