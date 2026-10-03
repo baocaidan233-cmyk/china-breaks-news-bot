@@ -146,6 +146,7 @@ async def find_publishable(
     threshold = config.publish.posted_dedup_threshold
     gray_zone_floor = config.heat.related_threshold  # 0.6 — same constant the ingestion-side gray zone uses
     other_match_floor = config.publish.posted_dedup_other_match_floor  # 0.75 — see below
+    posted_source_second_opinion = config.publish.posted_dedup_source_second_opinion
 
     for candidate in ranked_batch:
         comparisons: list[dict] = []
@@ -193,6 +194,24 @@ async def find_publishable(
                 else:
                     is_duplicate, same_event_raw = await event_verifier.same_event(text_a, text_b)
                     resolved_by = "llm"
+                    # 2026-10-03: a "different" on two captions gets a second
+                    # look on the sources. The captions carry the writer's own
+                    # slips, and the judge reads them as different stories
+                    # ("attributes it to the Taiwanese Coast Guard, not the
+                    # CCP"; "a demand to close contradicts the opening").
+                    # Hand-labelled 7.8 days of published caption-judged
+                    # pairs: of 29 true duplicates the source text caught 19,
+                    # at the cost of 4 of 27 different stories (all close
+                    # calls). Only a "different" is re-asked, so nothing the
+                    # caption judge already caught can be lost.
+                    if (not is_duplicate and not use_source and posted_source_second_opinion
+                            and m["title"] and candidate.title):
+                        second, second_raw = await event_verifier.same_event(
+                            candidate_source, event_identity_text(m["title"], m["description"]))
+                        same_event_raw = f"{same_event_raw}\n[source second opinion] {second_raw}"
+                        if second:
+                            is_duplicate = True
+                            resolved_by = "llm_source_second_opinion"
                 comparison = {
                     "matched_url": m["url"],
                     "cosine_score": similarity,

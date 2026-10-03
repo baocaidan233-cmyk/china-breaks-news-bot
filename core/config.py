@@ -542,6 +542,10 @@ class PublishConfig(BaseModel):
     # top-5 walk went live, every duplicate found below rank 1 scored
     # 0.62-0.67 and every one checked was wrong.
     posted_dedup_other_match_floor: float = 0.75
+    # 2026-10-03: when two captions are judged different, ask again on the
+    # two sources' title+lead (agents/posted_dedup_checker.py). Off restores
+    # the caption-only verdict.
+    posted_dedup_source_second_opinion: bool = True
     max_widen_attempts: int = 3  # ported from AM1ST 2026-09-06 — how many batch_max-sized chunks of the eligible pool to try before accepting "nothing to publish this cycle" as real, not just "the first batch_max happened to all be duplicates"; each attempt costs a real extraction+content-gen pass, so this isn't unbounded search over the whole pool
     staleness_check_hours_floor: int = 72  # ported from AM1ST 2026-09-06 — agents/staleness_checker.py's LLM call only runs when event_first_seen_at is at least this old; reuses dedup.cross_cycle_window_hours' existing 72h convention rather than picking a new number, keeping this an infrequent extra cost rather than doubling the LLM calls made for every candidate
 
