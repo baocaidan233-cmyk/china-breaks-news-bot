@@ -70,6 +70,8 @@ openai:
   embedding_model: "text-embedding-3-small"
   scoring_prompt_file: "prompts/scoring_prompt.txt"
   content_gen_prompt_file: "prompts/content_gen_prompt.txt"
+  hook_rewrite: true  # 写完后另起一次小调用只重写首句——见 core/config.py 和 prompts/WRITER_CHANGELOG.md
+  hook_rewrite_prompt_file: "prompts/hook_rewrite_prompt.txt"
   staleness_check_prompt_file: "prompts/staleness_check_prompt.txt"  # agents/staleness_checker.py, ported from AM1ST 2026-09-06
   # Ingestion-side AI score gate — was 4.0 (the real old n8n system's
   # global_config value), changed to 5.0 on 2026-09-06 per the user's

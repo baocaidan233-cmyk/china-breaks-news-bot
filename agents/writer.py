@@ -24,6 +24,7 @@ _MARKDOWN_RE = re.compile(r"[*_`#]+")
 # sometimes copies the "> " — 25 of 835 published posts went out with a
 # literal "&gt;" at the start of a paragraph.
 _QUOTE_MARK_RE = re.compile(r"^[ \t]*>[ \t]?", re.M)
+_NUMBER_RE = re.compile(r"\d[\d,.]*\d|\d")
 
 
 class Writer:
@@ -51,6 +52,8 @@ class Writer:
         self._model = config.openai.chat_model
         self._system_prompt = Path(config.openai.content_gen_prompt_file).read_text(encoding="utf-8")
         self._system_sha = hashlib.sha256(self._system_prompt.encode("utf-8")).hexdigest()[:12]
+        self._hook_prompt = (Path(config.openai.hook_rewrite_prompt_file).read_text(encoding="utf-8")
+                             if config.openai.hook_rewrite else None)
 
     async def write(self, title: str, article: str, context: str = "", is_opinion: bool = False, published_at=None) -> str:
         """`context` (2026-08-31) — optional prior-developments/related-
@@ -100,10 +103,43 @@ class Writer:
             ],
         )
         post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
-        self._log_call(title, article, context, is_opinion, published_at, post)
+        opening = None
+        if self._hook_prompt and not self.is_no_comment(post):
+            post, opening = await self._rewrite_opening(title, article, post)
+        self._log_call(title, article, context, is_opinion, published_at, post, opening)
         return post
 
-    def _log_call(self, title, article, context, is_opinion, published_at, post) -> None:
+    async def _rewrite_opening(self, title: str, article: str, post: str) -> tuple[str, dict | None]:
+        """Rewrites only the first paragraph of `post` (2026-10-03, writer step 2).
+
+        Offline on 66 published sources x 3 runs, blind-judged against the
+        article: wrong first-sentence subject 31%->3%, CCP misattribution
+        41%->10%, unsupported facts 22%->19%; bare "China" as a government
+        actor 2%->7%. In an earlier round the rewritten opening was preferred
+        51 to 5. The new line is used only if every number in it
+        is in the source, it is at most 30 words, and it has no question;
+        otherwise, or on any error, the writer's own line stays."""
+        parts = [p for p in post.split("\n\n") if p.strip()]
+        if not parts:
+            return post, None
+        user = (f"Title: {title}\n\nArticle: {article[:3000]}\n\nCurrent post:\n{post}"
+                f"\n\nCurrent opening line:\n{parts[0]}")
+        try:
+            resp = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[{"role": "system", "content": self._hook_prompt}, {"role": "user", "content": user}],
+            )
+            new = _QUOTE_MARK_RE.sub("", resp.choices[0].message.content or "").strip().strip('"').strip()
+        except Exception:
+            return post, {"before": parts[0], "after": None, "used": False}
+        source = (title + article).replace(",", "")
+        numbers_ok = all(n.replace(",", "").rstrip(".") in source for n in _NUMBER_RE.findall(new))
+        used = bool(new) and numbers_ok and len(new.split()) <= 30 and "?" not in new and "\n" not in new
+        if not used:
+            return post, {"before": parts[0], "after": new, "used": False}
+        return "\n\n".join([new] + parts[1:]), {"before": parts[0], "after": new, "used": True}
+
+    def _log_call(self, title, article, context, is_opinion, published_at, post, opening=None) -> None:
         """One line per production call in logs/writer_calls.jsonl (2026-10-03),
         the input side of any later prompt A/B: re-fetching sources weeks
         later loses some to paywalls and edits. system_sha splits the log by
@@ -112,7 +148,8 @@ class Writer:
             row = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                    "system_sha": self._system_sha, "title": title, "article": article[:6000],
                    "context": context, "is_opinion": is_opinion,
-                   "published_at": published_at.isoformat() if published_at else None, "post": post}
+                   "published_at": published_at.isoformat() if published_at else None, "post": post,
+                   "opening": opening}
             with open("logs/writer_calls.jsonl", "a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
         except Exception:

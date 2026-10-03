@@ -162,6 +162,11 @@ class OpenAIConfig(BaseModel):
     embedding_model: str = "text-embedding-3-small"
     scoring_prompt_file: str = "prompts/scoring_prompt.txt"
     content_gen_prompt_file: str = "prompts/content_gen_prompt.txt"
+    # 2026-10-03: a second, small call rewrites only the post's opening line
+    # (agents/writer.py's _rewrite_opening). Adding the same instructions to
+    # the 26k-character writer prompt moved nothing; a separate call did.
+    hook_rewrite: bool = False
+    hook_rewrite_prompt_file: str = "prompts/hook_rewrite_prompt.txt"
     staleness_check_prompt_file: str = "prompts/staleness_check_prompt.txt"  # agents/staleness_checker.py — deliberately a separate call from Writer, not folded into content_gen_prompt.txt (ported from AM1ST, see StalenessChecker's docstring for why three attempts at doing this inside one Writer call all failed)
     # Ingestion-side AI score gate — real calibrated value from the old
     # n8n system's global_config node (effectively "score > 3", i.e. a
