@@ -20,6 +20,11 @@ NO_COMMENT = "No comment"
 # if it were real content. Kept here as a preventive measure from day one.
 _MARKDOWN_RE = re.compile(r"[*_`#]+")
 
+# 2026-10-03: the prompt's EXAMPLES are markdown blockquotes, and the model
+# sometimes copies the "> " — 25 of 835 published posts went out with a
+# literal "&gt;" at the start of a paragraph.
+_QUOTE_MARK_RE = re.compile(r"^[ \t]*>[ \t]?", re.M)
+
 
 class Writer:
     """Content generation — prompts/content_gen_prompt.txt is China
@@ -94,7 +99,7 @@ class Writer:
                 {"role": "user", "content": user_message},
             ],
         )
-        post = (resp.choices[0].message.content or "").strip()
+        post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
         self._log_call(title, article, context, is_opinion, published_at, post)
         return post
 
