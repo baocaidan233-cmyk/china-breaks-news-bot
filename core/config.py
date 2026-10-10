@@ -552,6 +552,17 @@ class PublishConfig(BaseModel):
     # top-5 walk went live, every duplicate found below rank 1 scored
     # 0.62-0.67 and every one checked was wrong.
     posted_dedup_other_match_floor: float = 0.75
+    # 2026-10-10: from this similarity up to posted_dedup_threshold the judge
+    # is asked even when the two captions share no named entity. 14 days of
+    # gray-zone pairs skipped for "no shared entity": 0.70-0.80, 7 of 7 with
+    # both captions on hand were the same story posted twice (670 banks x3,
+    # the first F-16Vs, Tsentr-2026, reciprocal nuclear-site visits, Zhang
+    # Wanying); 0.60-0.70, 1 of 7. Bank closures, jet deliveries and drills
+    # name nobody, so the entity gate cannot work there. Replaying the judge
+    # on those 7 caught 5. About 8 extra judge calls per 14 days. Set it to
+    # posted_dedup_threshold to restore the entity gate for the whole band.
+    # See 事件库升级_202610/design.md 3.4.
+    posted_dedup_gray_no_entity_floor: float = 0.70
     # 2026-10-03: when two captions are judged different, ask again on the
     # two sources' title+lead (agents/posted_dedup_checker.py). Off restores
     # the caption-only verdict.

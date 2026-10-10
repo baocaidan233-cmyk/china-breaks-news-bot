@@ -146,6 +146,7 @@ async def find_publishable(
     threshold = config.publish.posted_dedup_threshold
     gray_zone_floor = config.heat.related_threshold  # 0.6 — same constant the ingestion-side gray zone uses
     other_match_floor = config.publish.posted_dedup_other_match_floor  # 0.75 — see below
+    no_entity_floor = config.publish.posted_dedup_gray_no_entity_floor  # 0.70 — gray-zone pairs at or above it skip the entity gate
     posted_source_second_opinion = config.publish.posted_dedup_source_second_opinion
 
     for candidate in ranked_batch:
@@ -176,9 +177,15 @@ async def find_publishable(
                 cosine_flagged = similarity > threshold
                 matched_entities: set[str] = set()
                 in_gray_zone = False
+                entity_gate_skipped = False
                 if not cosine_flagged and gray_zone_floor <= similarity:
                     matched_entities = entity_tokens(matched_content)
                     in_gray_zone = bool(candidate_entities & matched_entities)
+                    # 2026-10-10: in the upper gray zone a missing shared entity
+                    # is not evidence of a different story -- see
+                    # PublishConfig.posted_dedup_gray_no_entity_floor.
+                    if not in_gray_zone and similarity >= no_entity_floor:
+                        in_gray_zone = entity_gate_skipped = True
                 if not (cosine_flagged or in_gray_zone):
                     continue
                 if not matched_entities:
@@ -216,7 +223,8 @@ async def find_publishable(
                     "matched_url": m["url"],
                     "cosine_score": similarity,
                     "cosine_flagged": cosine_flagged,
-                    "gray_zone_entity_overlap": in_gray_zone,
+                    "gray_zone_entity_overlap": in_gray_zone and not entity_gate_skipped,
+                    "gray_zone_entity_gate_skipped": entity_gate_skipped,
                     "judged_on": "source_title_lead" if use_source else "caption",
                     "resolved_by": resolved_by,
                     "same_event_raw": same_event_raw,
