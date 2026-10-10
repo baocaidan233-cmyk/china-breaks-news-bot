@@ -41,6 +41,10 @@ class StalenessChecker:
         self._client = create_openai_client(config)
         self._model = config.openai.chat_model
         self._prompt = Path(config.openai.staleness_check_prompt_file).read_text(encoding="utf-8")
+        # 2026-10-10: the first-report-time check that runs in front of this one
+        # (agents/timeliness_check.py), carried here so callers need no new argument.
+        from agents.timeliness_check import TimelinessCheck
+        self.timeliness = TimelinessCheck(config) if config.publish.timeliness_check else None
 
     async def classify(self, title: str, article: str) -> tuple[str, str]:
         """Returns (verdict, raw) where verdict is one of "FRESH", "OPINION",

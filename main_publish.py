@@ -332,6 +332,22 @@ async def run_cycle(
                 continue
             c.content = text
 
+            # First-report time (2026-10-10, agents/timeliness_check.py, from
+            # AM1ST). User, 10-10: a story first reported 48h or more before
+            # we publish, with nothing new in the article, is not published --
+            # analysis and commentary included. The check below only runs once
+            # the event store saw the story 72h earlier; all 18 stale posts of
+            # 10/07-10/10 were new to it (Legis1's recap of a 09/30 hearing, a
+            # column on the F-16s delivered 10/02). Fails open, like that check.
+            timeliness = getattr(staleness_checker, "timeliness", None)
+            if timeliness is not None:
+                fresh = await timeliness.check(c.url, c.url_hash, c.title or "", c.content, c.published_at)
+                if fresh["verdict"] == "stale":
+                    logger.info("run_cycle: %s dropped — not news any more: %s", c.url, fresh["reason"])
+                    if not dry_run:
+                        await mark_writer_rejected(config, c.page_id)
+                    continue
+
             # Staleness classification (2026-09-06, ported from AM1ST) — a
             # separate, single-purpose call BEFORE the writer runs; see
             # agents/staleness_checker.py's docstring for why this isn't

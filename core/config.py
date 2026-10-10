@@ -168,6 +168,7 @@ class OpenAIConfig(BaseModel):
     hook_rewrite: bool = False
     hook_rewrite_prompt_file: str = "prompts/hook_rewrite_prompt.txt"
     staleness_check_prompt_file: str = "prompts/staleness_check_prompt.txt"  # agents/staleness_checker.py — deliberately a separate call from Writer, not folded into content_gen_prompt.txt (ported from AM1ST, see StalenessChecker's docstring for why three attempts at doing this inside one Writer call all failed)
+    timeliness_extract_prompt_file: str = "prompts/timeliness_extract_prompt.txt"  # agents/timeliness_check.py (2026-10-10, from AM1ST) — DailyNews' 10-09 extraction prompt, unchanged
     # Ingestion-side AI score gate — real calibrated value from the old
     # n8n system's global_config node (effectively "score > 3", i.e. a
     # minimum passing score of 4) — much looser than AM1ST's own >=5 gate.
@@ -568,6 +569,13 @@ class PublishConfig(BaseModel):
     # the caption-only verdict.
     posted_dedup_source_second_opinion: bool = True
     max_widen_attempts: int = 3  # ported from AM1ST 2026-09-06 — how many batch_max-sized chunks of the eligible pool to try before accepting "nothing to publish this cycle" as real, not just "the first batch_max happened to all be duplicates"; each attempt costs a real extraction+content-gen pass, so this isn't unbounded search over the whole pool
+    # 2026-10-10 — agents/timeliness_check.py, in front of the staleness
+    # check below: a story first reported this many hours before we publish,
+    # with nothing new in the article, is not published -- analysis and
+    # commentary included (user, 10-10). Replayed on the last 200 posts: 18
+    # stopped, 17 of them confirmed stale against the web.
+    timeliness_window_hours: float = 48
+    timeliness_check: bool = True
     staleness_check_hours_floor: int = 72  # ported from AM1ST 2026-09-06 — agents/staleness_checker.py's LLM call only runs when event_first_seen_at is at least this old; reuses dedup.cross_cycle_window_hours' existing 72h convention rather than picking a new number, keeping this an infrequent extra cost rather than doubling the LLM calls made for every candidate
 
 
