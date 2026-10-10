@@ -25,6 +25,28 @@ _MARKDOWN_RE = re.compile(r"[*_`#]+")
 # literal "&gt;" at the start of a paragraph.
 _QUOTE_MARK_RE = re.compile(r"^[ \t]*>[ \t]?", re.M)
 _NUMBER_RE = re.compile(r"\d[\d,.]*\d|\d")
+# Sentence end: . ! ? (optionally closing quote/bracket), whitespace, then an
+# uppercase letter or opening quote. Abbreviations are checked separately.
+_SENTENCE_END_RE = re.compile(r"[.!?][\"'”’)\]]?\s+(?=[\"“‘(A-Z])")
+_ABBREVIATIONS = {"mr", "mrs", "ms", "dr", "gen", "lt", "col", "sgt", "capt", "adm", "sen", "rep", "gov",
+                  "pres", "st", "no", "jr", "sr", "co", "inc", "corp", "ltd", "vs", "dept", "prof", "rev", "mt", "ft"}
+
+
+def _split_first_sentence(paragraph: str) -> tuple[str, str]:
+    """(first sentence, the rest of the paragraph). A single line break ends
+    it too. "U.S.", "Sen." and the like do not end a sentence, so a sentence
+    that really ends on one runs on into the next (one sentence too many,
+    never the whole post)."""
+    line, _, after = paragraph.strip().partition("\n")
+    if after.strip():
+        first, rest = _split_first_sentence(line)
+        return first, (rest + "\n" + after.strip()).strip()
+    for m in _SENTENCE_END_RE.finditer(paragraph):
+        word = paragraph[:m.start() + 1].split()[-1].rstrip(".!?")
+        if word.lower() in _ABBREVIATIONS or re.fullmatch(r"(?:[A-Za-z]\.)*[A-Za-z]", word):
+            continue
+        return paragraph[:m.end()].strip(), paragraph[m.end():].strip()
+    return paragraph.strip(), ""
 
 
 class Writer:
@@ -118,10 +140,18 @@ class Writer:
         actor 2%->7%. In an earlier round the rewritten opening was preferred
         51 to 5. The new line is used only if every number in it
         is in the source, it is at most 30 words, and it has no question;
-        otherwise, or on any error, the writer's own line stays."""
+        otherwise, or on any error, the writer's own line stays.
+
+        2026-10-10: the opening is the first SENTENCE of the first paragraph.
+        It used to be the whole first paragraph, and drafts often come back as
+        one paragraph with no blank lines, so the one-line rewrite replaced
+        the entire post: 37 of 445 published posts (Oct 3-10) went out as a
+        single sentence. The rest of that paragraph now stays, as the body."""
         parts = [p for p in post.split("\n\n") if p.strip()]
         if not parts:
             return post, None
+        first, rest = _split_first_sentence(parts[0])
+        parts = [first] + ([rest] if rest else []) + parts[1:]
         user = (f"Title: {title}\n\nArticle: {article[:3000]}\n\nCurrent post:\n{post}"
                 f"\n\nCurrent opening line:\n{parts[0]}")
         try:
