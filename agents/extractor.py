@@ -9,6 +9,11 @@ from urllib.parse import quote, urlparse
 import httpx
 import trafilatura
 
+# Reader comments are never part of the article (channel owner's rule, applied
+# on AM1ST 2026-10-06; here 2026-10-11). trafilatura keeps the comment
+# section by default, and a writer or timeliness check reading it can take a
+# reader's post for the story.
+
 from core.alerts import AlertNotifier
 from core.config import AppConfig
 from core.models import RssSource
@@ -301,7 +306,7 @@ class Extractor:
             headers["cookie"] = source.cookie
 
         html = await self._fetch_plain(url, headers)
-        text = await asyncio.to_thread(trafilatura.extract, html) if html else None
+        text = await asyncio.to_thread(trafilatura.extract, html, include_comments=False) if html else None
 
         too_thin = not text or len(text) < extraction.min_text_length
         # A recognised teaser earns a render whatever the domain: nothing else
@@ -320,7 +325,7 @@ class Extractor:
             # trafilatura's parsing is CPU-bound, synchronous — offload so
             # it doesn't block the event loop while other candidates are in
             # flight.
-            text = await asyncio.to_thread(trafilatura.extract, html) if html else None
+            text = await asyncio.to_thread(trafilatura.extract, html, include_comments=False) if html else None
 
         if not text or len(text) < extraction.min_text_length:
             reason = f"extracted only {len(text or '')} chars" if html else "fetch failed"
