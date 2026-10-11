@@ -129,6 +129,7 @@ from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
 from core.redis_store import CaptionCache, PostedDupStrikes
 from core.title_guard import title_violation
+from core.caption_guard import invented_biden
 from core import money_tags
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -469,6 +470,16 @@ async def run_cycle(
                 logger.warning(
                     "run_cycle: %s — caption blocked by title_guard rule %s, dropped from batch",
                     c.url, title_rule,
+                )
+                continue
+
+            # A caption that names Biden when the article never does (2026-10-11,
+            # core/caption_guard.py). c.content is the extracted article here,
+            # cache hit or not.
+            if invented_biden(post_content, getattr(c, "content", "") or ""):
+                logger.warning(
+                    "run_cycle: %s — caption blocked by caption_guard rule invented-biden, dropped from batch",
+                    c.url,
                 )
                 continue
 
