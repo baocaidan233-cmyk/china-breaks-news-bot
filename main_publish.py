@@ -128,6 +128,7 @@ from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
 from core.redis_store import CaptionCache, PostedDupStrikes
 from core.title_guard import title_violation
+from core import money_tags
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main_publish")
@@ -186,6 +187,12 @@ async def _build_headline_card(winner, uploader: MediaUploader,
     when it does not. Drawing is PIL, which is blocking, so it runs in the
     default executor."""
     headline, deck = await headline_writer.write(winner.post_content)
+    # The card headline is a second model call over the caption and can
+    # retype its figures; one that isn't in the caption falls back to the
+    # caption's own first sentence (2026-10-11, AI-54).
+    if headline and money_tags.check(f"{headline}\n{deck}", money_tags.extract(winner.post_content)):
+        logger.info("card: headline figure not in the caption, falling back for %s", winner.url)
+        headline, deck = "", ""
     if not headline:
         headline, deck = _caption_first_sentence(winner.post_content), ""
         logger.info("card: headline writer gave nothing, falling back to the caption for %s",
@@ -403,11 +410,36 @@ async def run_cycle(
             # drifting its posted-dedup embedding enough to flip
             # same_event()'s verdict on the same underlying pair (confirmed
             # in both AM1ST and Market Watcher).
+            #
+            # Money (2026-10-11, Linear AI-54): for a Chinese-language source
+            # the amounts go to the writer as [AMT1] tags that code fills in
+            # (core/money_tags.py) -- all 8 magnitude errors measured over 30
+            # days came from those sources. A caption with a figure of the
+            # model's own that isn't in the source is excluded for good, no
+            # rewrite. Checked again on the final text below, so a caption
+            # cached before this existed is held to the same rule.
+            source_text = f"{c.title}\n{c.content}"
+            amounts = money_tags.extract(source_text)
+            tagged = money_tags.has_cjk(amounts)
             post_content = await caption_cache.get(c.url_hash)
             if post_content is None:
-                post_content = await writer.write(c.title, c.content, context=background, is_opinion=is_opinion, published_at=c.published_at)
+                post_content = await writer.write(
+                    c.title, c.content, context=background, is_opinion=is_opinion, published_at=c.published_at,
+                    money_note=money_tags.tag_instructions(amounts) if tagged else "",
+                )
                 if not Writer.is_no_comment(post_content):
-                    await caption_cache.set(c.url_hash, post_content)
+                    money_rule = money_tags.check(post_content, amounts, source_text) if tagged else None
+                    if money_rule is None:
+                        if tagged:
+                            post_content = money_tags.fill(post_content, amounts)
+                        await caption_cache.set(c.url_hash, post_content)
+            else:
+                money_rule = money_tags.check(post_content, amounts, source_text) if tagged else None
+            if not Writer.is_no_comment(post_content) and money_rule:
+                logger.warning("run_cycle: %s — caption refused, money: %s", c.url, money_rule)
+                if not dry_run:
+                    await mark_writer_rejected(config, c.page_id)
+                continue
 
             # Second gate on the same caption, and a different question from
             # caption_guard's: not "is this one fixed error present" but "does

@@ -77,7 +77,8 @@ class Writer:
         self._hook_prompt = (Path(config.openai.hook_rewrite_prompt_file).read_text(encoding="utf-8")
                              if config.openai.hook_rewrite else None)
 
-    async def write(self, title: str, article: str, context: str = "", is_opinion: bool = False, published_at=None) -> str:
+    async def write(self, title: str, article: str, context: str = "", is_opinion: bool = False, published_at=None,
+                    money_note: str = "") -> str:
         """`context` (2026-08-31) — optional prior-developments/related-
         events summary for this story, built by main_publish.py from
         core/qdrant_store.py's EventStore (timeline + related_event_ids on
@@ -107,6 +108,10 @@ class Writer:
                         f"Title:  {title}\n\nArticle: {article}")
         if context:
             user_message += f"\n\nBackground: {context}"
+        # 2026-10-11: core/money_tags.tag_instructions() for a Chinese-language
+        # source, which the caller fills in after checking. Empty otherwise.
+        if money_note:
+            user_message += money_note
         if is_opinion:
             user_message += (
                 "\n\nNote: this article is analysis/commentary about an event "
