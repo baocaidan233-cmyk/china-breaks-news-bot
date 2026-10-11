@@ -40,7 +40,10 @@ _FRESHNESS_DECAY_K = 1.5
 # property of the copy, and at p≈0.06 on n=99 it has not earned equal weight.
 # A bonus, never a gate: CCP-internal and third-country stories are this
 # channel's own beat and still rank on their own llm_score.
-_US_STAKE_BONUS = 1.0
+# 2026-10-11: switched off by the user, who never approved it: "我不需要CB选稿
+# 的时候有美国就加分". has_us_stake() is still computed and logged as us_stake,
+# but it no longer moves the ranking.
+_US_STAKE_BONUS = 0.0
 
 
 def _log_decision(record: dict) -> None:
