@@ -54,11 +54,9 @@ class Writer:
     Breaks' own content-gen prompt (finalized by the user from this
     project's live n8n export plus a design doc, copied here verbatim,
     including its explicit actor-first — not media-outlet-name-first —
-    opening rule). Wired to config.openai.chat_model (gpt-4o-mini) per
-    this project's standing model-architecture rule — deliberately NOT
-    gpt-4.1-mini, which is what the old n8n content-gen workflow actually
-    used; gpt-4o-mini matches AM1ST (this codebase's architecture origin)
-    and the project's own standing "gpt-4o-mini everywhere" rule instead.
+    opening rule). Wired to config.openai.writer_model (gpt-5.4-mini since
+    2026-10-11, at the lowest reasoning effort; both the draft and the opening
+    rewrite) — the one call not on chat_model; see core/config.py.
 
     Deliberately a separate LLM call from Scorer, not merged into one
     request — mechanism ported unchanged from AM1ST: Scoring decides "is
@@ -71,7 +69,10 @@ class Writer:
 
     def __init__(self, config: AppConfig) -> None:
         self._client = create_openai_client(config)
-        self._model = config.openai.chat_model
+        self._model = config.openai.writer_model
+        # The gpt-5 family takes a reasoning effort; gpt-4o-mini rejects one.
+        self._extra = ({"reasoning_effort": config.openai.writer_reasoning_effort}
+                       if self._model.startswith("gpt-5") else {})
         self._system_prompt = Path(config.openai.content_gen_prompt_file).read_text(encoding="utf-8")
         self._system_sha = hashlib.sha256(self._system_prompt.encode("utf-8")).hexdigest()[:12]
         self._hook_prompt = (Path(config.openai.hook_rewrite_prompt_file).read_text(encoding="utf-8")
@@ -128,6 +129,7 @@ class Writer:
                 {"role": "system", "content": self._system_prompt},
                 {"role": "user", "content": user_message},
             ],
+            **self._extra,
         )
         post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
         opening = None
@@ -163,6 +165,7 @@ class Writer:
             resp = await self._client.chat.completions.create(
                 model=self._model,
                 messages=[{"role": "system", "content": self._hook_prompt}, {"role": "user", "content": user}],
+                **self._extra,
             )
             new = _QUOTE_MARK_RE.sub("", resp.choices[0].message.content or "").strip().strip('"').strip()
         except Exception:

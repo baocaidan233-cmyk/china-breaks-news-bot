@@ -84,8 +84,9 @@ class FallbackOpenAI:
             messages = kwargs.get("messages") or []
             system_snippet = messages[0].get("content", "")[:50] if messages else ""
             logger.info(
-                "FallbackOpenAI: usage prompt=%d cached=%d completion=%d system=%r",
+                "FallbackOpenAI: usage prompt=%d cached=%d completion=%d system=%r model=%s",
                 usage.prompt_tokens, cached, usage.completion_tokens, system_snippet,
+                kwargs.get("model", ""),
             )
         except Exception:
             logger.exception("FallbackOpenAI: usage logging failed, ignoring")

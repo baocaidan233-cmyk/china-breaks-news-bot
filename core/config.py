@@ -159,6 +159,13 @@ class OpenAIConfig(BaseModel):
     # one, not re-tested: nothing in this codebase should reference
     # gpt-5-nano without a fresh, judgment-quality-focused live test first.
     chat_model: str = "gpt-4o-mini"
+    # Writer only (Caidan, 2026-10-11: 写稿换5.4mini，推理到最少). gpt-4o-mini's
+    # training stops in 2023; on 2026-10-11 it turned Market Watcher's TASS
+    # "the US administration" into "the Biden administration". "none" is the
+    # lowest effort gpt-5.4-mini accepts ("minimal" is rejected with a 400).
+    # Every other call stays on chat_model.
+    writer_model: str = "gpt-5.4-mini"
+    writer_reasoning_effort: str = "none"
     embedding_model: str = "text-embedding-3-small"
     scoring_prompt_file: str = "prompts/scoring_prompt.txt"
     content_gen_prompt_file: str = "prompts/content_gen_prompt.txt"
