@@ -119,6 +119,7 @@ from agents.priority_ranker import PriorityRanker, log_publish_outcome
 from agents.staleness_checker import StalenessChecker
 from agents.trending import fetch_trending_headlines
 from agents.writer import Writer
+from core.time_words import fix_caption_time_words
 from core.alerts import AlertNotifier
 from core.config import load_config
 from core.event_identity import EventVerifier
@@ -440,6 +441,17 @@ async def run_cycle(
                 if not dry_run:
                     await mark_writer_rejected(config, c.page_id)
                 continue
+
+            # Time words (2026-10-11, core/time_words.py, from DailyNews; user: 时效性
+            # 不能错). Every weekday or date the caption gives must be one the source
+            # gives, written as that day in US Eastern; one the source does not give
+            # is cut with its preposition. Replayed on 547 published posts of the four
+            # channels: 7 changed, none wrongly. Runs on cached captions too, and does
+            # nothing when there is no source text to check against.
+            post_content, time_fixes = fix_caption_time_words(post_content, c.title or "", getattr(c, "content", "") or "",
+                                                               c.published_at, c.url)
+            if time_fixes:
+                logger.info("run_cycle: %s — time words: %s", c.url, " | ".join(time_fixes))
 
             # Second gate on the same caption, and a different question from
             # caption_guard's: not "is this one fixed error present" but "does
