@@ -115,6 +115,7 @@ from agents.media_uploader import MediaUploader
 from agents.og_metadata import fetch_link_preview
 from agents.preview_gate import preview_fault
 from agents.posted_dedup_checker import content_for_embedding, find_publishable
+from core.same_news import lead_paragraph
 from agents.priority_ranker import PriorityRanker, log_publish_outcome
 from agents.staleness_checker import StalenessChecker
 from agents.trending import fetch_trending_headlines
@@ -600,7 +601,7 @@ async def run_cycle(
         winner_embedding = await embedder.embed(content_for_embedding(winner.post_content, winner.url))
         await posted_store.write(
             winner.url, winner.url_hash, winner.post_content, int(winner.published_at.timestamp()), winner_embedding,
-            title=winner.title, description=winner.description,
+            title=winner.title, description=winner.description, lead=lead_paragraph(winner.content),
         )
 
         # Flag the underlying event as published (2026-08-07) — so a later

@@ -823,12 +823,13 @@ class PostedHistoryStore:
                 "content": payload.get("content", ""),
                 "title": payload.get("title", ""),
                 "description": payload.get("description", ""),
+                "lead": payload.get("lead", ""),
             })
         return matches
 
     async def write(
         self, url: str, url_hash: str, content: str, published_at_unix: int, embedding: list[float],
-        title: str = "", description: str = "",
+        title: str = "", description: str = "", lead: str = "",
     ) -> None:
         """Called once, right after the publish cycle's winner is chosen —
         never for a rejected/duplicate candidate. `content` should be the
@@ -846,7 +847,7 @@ class PostedHistoryStore:
                     vector=embedding,
                     payload={
                         "content": content, "url": url, "urlHash": url_hash, "publishedAt": published_at_unix,
-                        "title": title, "description": description,
+                        "title": title, "description": description, "lead": lead,
                     },
                 )
             ],

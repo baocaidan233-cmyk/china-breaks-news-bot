@@ -206,7 +206,7 @@ publish:
   posted_dedup_threshold: 0.80  # 2026-09-07: was 0.70 — raised to match dedup.semantic_threshold exactly now that the gray zone (0.6-0.8, entity-overlap-widened) is the real safety net, not the raw cutoff — see core/config.py's PublishConfig docstring
   posted_dedup_other_match_floor: 0.75  # 第 2–5 名已发帖只有相似度 ≥ 这个值才问判官；第 1 名照旧用完整灰区（0.60 起）——见 core/config.py
   posted_dedup_gray_no_entity_floor: 0.70  # 灰区里相似度 ≥ 这个值时，不要求共同人名/机构，直接问判官（10/10：0.70–0.80 段被实体门放走的 7 对全是重复）——见 core/config.py
-  posted_dedup_source_second_opinion: true  # 两条文案被判「不同」时再用两边原文标题+导语问一次——见 core/config.py
+  posted_dedup_source_second_opinion: true  # 2026-10-12 起不再使用：判官一次看两边「帖子+原文标题+第一段」，新提示词 prompts/same_news_prompt.txt（core/same_news.py，AI-60）
   posted_dedup_strikes_before_retire: 2  # 被判重复这么多次后把候选从池子里退役（留一次翻盘机会）——见 core/config.py
   max_widen_attempts: 3  # ported from AM1ST 2026-09-06 — see core/config.py's PublishConfig docstring
   staleness_check_hours_floor: 72  # ported from AM1ST 2026-09-06

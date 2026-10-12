@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from agents.embedder import Embedder
 from core.config import AppConfig
 from core.event_identity import EventVerifier, entity_tokens, event_identity_text, has_date_conflict, log_decision
+from core.same_news import get_judge, lead_paragraph, news_record
 from core.models import PublishCandidate
 from core.qdrant_store import PostedHistoryStore
 
@@ -147,7 +148,6 @@ async def find_publishable(
     gray_zone_floor = config.heat.related_threshold  # 0.6 — same constant the ingestion-side gray zone uses
     other_match_floor = config.publish.posted_dedup_other_match_floor  # 0.75 — see below
     no_entity_floor = config.publish.posted_dedup_gray_no_entity_floor  # 0.70 — gray-zone pairs at or above it skip the entity gate
-    posted_source_second_opinion = config.publish.posted_dedup_source_second_opinion
 
     for candidate in ranked_batch:
         comparisons: list[dict] = []
@@ -155,7 +155,8 @@ async def find_publishable(
         top: dict | None = None
         try:
             candidate_content = content_for_embedding(candidate.post_content, candidate.url)
-            candidate_source = event_identity_text(candidate.title, candidate.description)
+            candidate_record = news_record(candidate_content, candidate.title, lead_paragraph(candidate.content),
+                                           candidate.description)
             embedding = await embedder.embed(candidate_content)
             matches = await posted_store.similar_recent(embedding)
             top = matches[0] if matches else None
@@ -191,41 +192,22 @@ async def find_publishable(
                 if not matched_entities:
                     matched_entities = entity_tokens(matched_content)
 
-                use_source = in_gray_zone and bool(m["title"]) and bool(candidate.title)
-                text_a = candidate_source if use_source else candidate_content
-                text_b = event_identity_text(m["title"], m["description"]) if use_source else matched_content
-                if has_date_conflict(candidate_content, matched_content):
-                    is_duplicate = False
-                    same_event_raw = "RULE: has_date_conflict() — explicit conflicting dates, skipped LLM call"
-                    resolved_by = "date_conflict_rule"
-                else:
-                    is_duplicate, same_event_raw = await event_verifier.same_event(text_a, text_b)
-                    resolved_by = "llm"
-                    # 2026-10-03: a "different" on two captions gets a second
-                    # look on the sources. The captions carry the writer's own
-                    # slips, and the judge reads them as different stories
-                    # ("attributes it to the Taiwanese Coast Guard, not the
-                    # CCP"; "a demand to close contradicts the opening").
-                    # Hand-labelled 7.8 days of published caption-judged
-                    # pairs: of 29 true duplicates the source text caught 19,
-                    # at the cost of 4 of 27 different stories (all close
-                    # calls). Only a "different" is re-asked, so nothing the
-                    # caption judge already caught can be lost.
-                    if (not is_duplicate and not use_source and posted_source_second_opinion
-                            and m["title"] and candidate.title):
-                        second, second_raw = await event_verifier.same_event(
-                            candidate_source, event_identity_text(m["title"], m["description"]))
-                        same_event_raw = f"{same_event_raw}\n[source second opinion] {second_raw}"
-                        if second:
-                            is_duplicate = True
-                            resolved_by = "llm_source_second_opinion"
+                # 2026-10-12 (AI-60, core/same_news.py): each side is our post
+                # plus its source's headline and first paragraph, one call,
+                # new prompt; the date-conflict release and the second
+                # opinion on sources are gone. UNCERTAIN counts as a duplicate.
+                matched_record = news_record(matched_content, m["title"], m.get("lead", ""), m["description"])
+                verdict, same_event_raw = await get_judge(config).judge(matched_record, candidate_record)
+                is_duplicate = verdict != "DIFFERENT"
+                resolved_by = "llm" if verdict != "UNCERTAIN" else "llm_uncertain"
+                judged_on = "post_title_lead" if m.get("lead") else "post_title_description"
                 comparison = {
                     "matched_url": m["url"],
                     "cosine_score": similarity,
                     "cosine_flagged": cosine_flagged,
                     "gray_zone_entity_overlap": in_gray_zone and not entity_gate_skipped,
                     "gray_zone_entity_gate_skipped": entity_gate_skipped,
-                    "judged_on": "source_title_lead" if use_source else "caption",
+                    "judged_on": judged_on,
                     "resolved_by": resolved_by,
                     "same_event_raw": same_event_raw,
                     "verdict": "duplicate" if is_duplicate else "kept",
@@ -233,8 +215,8 @@ async def find_publishable(
                     "entity_overlap": sorted(candidate_entities & matched_entities),
                     # The two texts exactly as same_event()/the rule tier saw
                     # them, so a verdict can be replayed offline.
-                    "candidate_text": text_a,
-                    "matched_text": text_b,
+                    "candidate_text": candidate_record,
+                    "matched_text": matched_record,
                 }
                 comparisons.append(comparison)
                 if is_duplicate:

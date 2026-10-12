@@ -241,6 +241,7 @@ class EntityVerifierConfig(BaseModel):
     min_doc_freq_for_core: int = 2  # a token must appear in at least this many of an event's OWN accumulated articles to join its persisted core_entities (not a ratio — a ratio lets a single one-off token qualify as "core" while an event still only has 1-2 articles, see the same design note)
     hub_key_prefix: str = "chinabreaks:hub:"  # Redis key namespace for the token/pair historical-hub-count index — separate namespace from redis.key_prefix's URL-hash dedup, same REDIS_URL
     same_event_prompt_file: str = "prompts/same_event_prompt.txt"
+    same_news_prompt_file: str = "prompts/same_news_prompt.txt"  # 2026-10-12 publish-side judge, core/same_news.py (AI-60)
     update_subtype_prompt_file: str = "prompts/update_subtype_prompt.txt"
     related_event_prompt_file: str = "prompts/related_event_prompt.txt"  # EventVerifier.related_event() — see core/event_identity.py
     log_path: str = "logs/event_identity_decisions.jsonl"
