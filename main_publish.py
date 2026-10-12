@@ -132,6 +132,7 @@ from core.redis_store import CaptionCache, PostedDupStrikes
 from core.title_guard import title_violation
 from core.caption_guard import invented_biden
 from core import money_tags
+from core.opinion import opinion_rule
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main_publish")
@@ -341,6 +342,15 @@ async def run_cycle(
                 await mark_extraction_failed(config, c.page_id)
                 continue
             c.content = text
+
+            # 2026-10-12, core/opinion.py: a Chinese column whose headline did
+            # not give it away at ingestion still ends with its author line.
+            opinion = opinion_rule(c.title or "", text)
+            if opinion:
+                logger.info("run_cycle: %s dropped — %s", c.url, opinion)
+                if not dry_run:
+                    await mark_writer_rejected(config, c.page_id)
+                continue
 
             # First-report time (2026-10-10, agents/timeliness_check.py, from
             # AM1ST). User, 10-10: a story first reported 48h or more before
