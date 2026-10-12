@@ -343,9 +343,9 @@ async def run_cycle(
                 continue
             c.content = text
 
-            # 2026-10-12, core/opinion.py: a Chinese column whose headline did
-            # not give it away at ingestion still ends with its author line.
-            opinion = opinion_rule(c.title or "", text)
+            # 2026-10-12, core/opinion.py: the same title rule main.py applies at
+            # ingestion, for candidates that reached the pool before it existed.
+            opinion = opinion_rule(c.title or "")
             if opinion:
                 logger.info("run_cycle: %s dropped — %s", c.url, opinion)
                 if not dry_run:
