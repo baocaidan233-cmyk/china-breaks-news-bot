@@ -675,7 +675,7 @@ class FactCheckConfig(BaseModel):
     enabled: bool = True
     api_key: str = ""  # ANTHROPIC_API_KEY in .env
     model: str = "claude-haiku-5-5"
-    effort: str = "medium"
+    effort: str = "low"  # 10-13: same catch rate as medium on the 250 posts (25/39), 13 vs 15 flags on passed ones, ~15% cheaper
     prompt_file: str = "prompts/fact_check_prompt.txt"
     timeout_seconds: float = 60.0
 
