@@ -79,7 +79,7 @@ class Writer:
                              if config.openai.hook_rewrite else None)
 
     async def write(self, title: str, article: str, context: str = "", is_opinion: bool = False, published_at=None,
-                    money_note: str = "") -> str:
+                    money_note: str = "", english_retry: bool = False) -> str:
         """`context` (2026-08-31) — optional prior-developments/related-
         events summary for this story, built by main_publish.py from
         core/qdrant_store.py's EventStore (timeline + related_event_ids on
@@ -122,6 +122,16 @@ class Writer:
                 "expert or source where the article does) — do not write it "
                 "as if the underlying event just happened today, and do not "
                 "use \"BREAKING.\""
+            )
+        if english_retry:
+            # AI-73: set by main_publish.py when the first caption carried a
+            # letter outside the Latin script. One retry with the rule
+            # restated where the model looks last; a second such caption is
+            # dropped, never published. Same as Leading News.
+            user_message += (
+                "\n\nIMPORTANT: your post must be written entirely in English, "
+                "whatever language the article is in. Translate every name and word; "
+                "do not copy any of the original script."
             )
         resp = await self._client.chat.completions.create(
             model=self._model,

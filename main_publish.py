@@ -131,6 +131,7 @@ from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_
 from core.redis_store import CaptionCache, PostedDupStrikes
 from core.title_guard import title_violation
 from core.caption_guard import invented_biden
+from core.language import is_english_caption
 from core import money_tags
 from core.opinion import opinion_rule
 
@@ -435,11 +436,30 @@ async def run_cycle(
             amounts = money_tags.extract(source_text)
             tagged = money_tags.has_cjk(amounts)
             post_content = await caption_cache.get(c.url_hash)
+            # A cached caption from before the English rule (AI-73) is not
+            # trusted: it is rewritten like a miss.
+            if post_content is not None and not Writer.is_no_comment(post_content) \
+                    and not is_english_caption(post_content):
+                post_content = None
             if post_content is None:
                 post_content = await writer.write(
                     c.title, c.content, context=background, is_opinion=is_opinion, published_at=c.published_at,
                     money_note=money_tags.tag_instructions(amounts) if tagged else "",
                 )
+                # Every letter of the caption has to be English (AI-73, the
+                # Leading News rule). Replayed on 911 captions published
+                # 09-28..10-13, two went out with Chinese in them (对等, 拆驗).
+                # One retry with the rule restated, then the candidate is
+                # dropped from this batch.
+                if not Writer.is_no_comment(post_content) and not is_english_caption(post_content):
+                    logger.warning("run_cycle: %s — caption not English, retrying once: %r", c.url, post_content[-120:])
+                    post_content = await writer.write(
+                        c.title, c.content, context=background, is_opinion=is_opinion, published_at=c.published_at,
+                        money_note=money_tags.tag_instructions(amounts) if tagged else "", english_retry=True,
+                    )
+                    if not Writer.is_no_comment(post_content) and not is_english_caption(post_content):
+                        logger.warning("run_cycle: %s — caption still not English, dropped from batch", c.url)
+                        continue
                 if not Writer.is_no_comment(post_content):
                     money_rule = money_tags.check(post_content, amounts, source_text) if tagged else None
                     if money_rule is None:

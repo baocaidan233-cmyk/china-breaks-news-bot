@@ -29,6 +29,7 @@ worth revisiting once this weekend's live test data exists."""
 from __future__ import annotations
 
 import logging
+import re
 
 from langdetect import DetectorFactory, LangDetectException, detect
 
@@ -92,3 +93,27 @@ def is_english(text: str) -> bool:
         return detect(cleaned) == "en"
     except LangDetectException:
         return True
+
+
+def _non_latin_letters(text: str) -> str:
+    """The letters in `text` written in a non-Latin script (Cyrillic, Greek,
+    Arabic, Hebrew, Georgian, CJK...). Accented Latin letters (é, ł, ş) are
+    Latin: a Polish or Turkish name in an English sentence is still English.
+    So is Vietnamese (U+1E00-U+1EFF, Latin Extended Additional): "Trần Thanh
+    Mẫn" and "Việt Nam" went out on China Breaks 10-12 and are not a slip."""
+    return "".join(ch for ch in text
+                   if ch.isalpha() and ord(ch) > 0x024F and not 0x1E00 <= ord(ch) <= 0x1EFF)
+
+
+def is_english_caption(text: str) -> bool:
+    """is_english() for a caption this channel is about to publish: not one
+    letter outside the Latin script. The 5% ratio in is_english() is for
+    judging a whole source text; a caption is our own English, so a single
+    foreign word in it is a writer slip, not noise. Same rule as Leading
+    News d92cfa1 (AI-63), ported for AI-73 after DailyNews' writer pasted
+    "李强作总结讲话" into a post on 2026-10-13. A link is not checked (a
+    source URL can carry native-script paths)."""
+    body = re.sub(r"https?://\S+", "", text)
+    if _non_latin_letters(body):
+        return False
+    return is_english(text)
