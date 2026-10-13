@@ -54,12 +54,18 @@ class FactChecker:
         if fc.enabled and not fc.api_key:
             logger.warning("FactChecker: ANTHROPIC_API_KEY not set -- fact check off")
 
-    async def check(self, title: str, article: str, post: str, url: str = "", stage: str = "draft") -> dict:
+    async def check(self, title: str, article: str, post: str, url: str = "", stage: str = "draft",
+                    ignore: list[str] | tuple = ()) -> dict:
         """{"verdict": PASS|FAIL|UNSURE|ERROR|OFF, "problems": [ "claim: reason", ...]}"""
+        # Text our own code wrote into the caption (money_tags.conversions()),
+        # taken out so the checker only reads what the writer claimed.
+        checked = post
+        for s in ignore:
+            checked = checked.replace(s, "")
         if not self.enabled:
             return {"verdict": "OFF", "problems": []}
         user = (f"TODAY: {datetime.now(timezone.utc).date().isoformat()}\n\nARTICLE TITLE: {title}"
-                f"\n\nARTICLE:\n{article}\n\nPOST:\n{post}")
+                f"\n\nARTICLE:\n{article}\n\nPOST:\n{checked}")
         verdict, problems, claims, usage = "ERROR", [], [], None
         try:
             resp = await self._client.messages.create(

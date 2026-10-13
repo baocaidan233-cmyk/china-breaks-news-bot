@@ -246,7 +246,8 @@ async def _fact_checked(fact_checker: FactChecker, writer: Writer, c, post: str,
     best story -- the writer gets one rewrite with the checker's reasons, and
     only a second failure drops it. PASS, UNSURE and a broken check all let
     the caption through."""
-    first = await fact_checker.check(c.title or "", c.content or "", post, c.url, "draft")
+    ignore = money_tags.conversions(amounts) if tagged else []
+    first = await fact_checker.check(c.title or "", c.content or "", post, c.url, "draft", ignore=ignore)
     if first["verdict"] != "FAIL":
         return post
     logger.info("run_cycle: %s — fact check failed, rewriting once: %s", c.url, " | ".join(first["problems"])[:500])
@@ -262,7 +263,7 @@ async def _fact_checked(fact_checker: FactChecker, writer: Writer, c, post: str,
             logger.warning("run_cycle: %s — fact-check rewrite refused, money: %s", c.url, money_rule)
             return None
         new = money_tags.fill(new, amounts)
-    second = await fact_checker.check(c.title or "", c.content or "", new, c.url, "rewrite")
+    second = await fact_checker.check(c.title or "", c.content or "", new, c.url, "rewrite", ignore=ignore)
     if second["verdict"] == "FAIL":
         logger.warning("run_cycle: %s — fact check failed again after rewrite, dropped from batch: %s",
                        c.url, " | ".join(second["problems"])[:500])

@@ -442,6 +442,21 @@ _TAG_WRAP_AFTER = re.compile(
     r"^\s*(?:yuan|rmb|dollars|usd|hkd|hong kong dollars|patacas)\b", re.I)
 
 
+def conversions(amounts: list[Amount]) -> list[str]:
+    """The " (about $...)" that fill() writes after each tagged amount: our own
+    conversion at a fixed rate, not the source's. The pre-publish fact check
+    (core/fact_check.py, 2026-10-13) takes these out before it reads the
+    caption -- it found "12.2 billion yuan (about $1.7 billion)" in a China
+    Breaks caption, saw no dollar figure in the source, and failed it."""
+    out = []
+    for a in tagged(amounts):
+        body = render(a)
+        i = body.find(" (about ")
+        if i >= 0:
+            out.append(body[i:])
+    return out
+
+
 def fill(text: str, amounts: list[Amount], *, short: bool = False) -> str:
     amounts = tagged(amounts)
     text = _fix_tags(text)
