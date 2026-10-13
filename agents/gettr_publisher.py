@@ -98,16 +98,17 @@ class GettrPublisher:
         # publish path in this bot funnels through here, so nothing can reach
         # Gettr around it. See core/caption_guard.py for the patterns and for
         # what it deliberately leaves alone.
-        violation = former_president_violation(payload.get("txt", "") or "")
+        # Reads `text`, the caption itself: payload.get("txt") was always ""
+        # (the caption is at payload["data"]["txt"]), so until 2026-10-13 this
+        # gate never saw a caption.
+        violation = former_president_violation(text or "")
         if violation:
             logger.error(
                 "GettrPublisher: caption blocked by caption_guard rule %s — not publishing",
                 violation,
             )
             return None
-        # AI-73: every letter English. Reads `text`, the caption itself --
-        # payload.get("txt") above is always "" (the caption is at
-        # payload["data"]["txt"]).
+        # AI-73: every letter English.
         if not is_english_caption(text or ""):
             logger.error("GettrPublisher: caption is not English — not publishing %s", log_ref)
             return None

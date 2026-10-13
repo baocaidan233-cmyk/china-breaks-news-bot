@@ -130,7 +130,7 @@ from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
 from core.redis_store import CaptionCache, PostedDupStrikes
 from core.title_guard import title_violation
-from core.caption_guard import invented_biden
+from core.caption_guard import former_president_violation, invented_biden
 from core.language import is_english_caption
 from core import money_tags
 from core.opinion import opinion_rule
@@ -501,6 +501,18 @@ async def run_cycle(
                 logger.warning(
                     "run_cycle: %s — caption blocked by title_guard rule %s, dropped from batch",
                     c.url, title_rule,
+                )
+                continue
+
+            # A caption calling Trump a former president (2026-10-13, core/caption_guard.py;
+            # same gate as AM1ST and LN). Until now this channel's only copy sat in
+            # GettrPublisher reading payload.get("txt"), which is always "" -- two such
+            # captions went out, 10-02 and 10-04, and were deleted 10-13.
+            violation = former_president_violation(post_content)
+            if violation:
+                logger.warning(
+                    "run_cycle: %s — caption blocked by caption_guard rule %s, dropped from batch",
+                    c.url, violation,
                 )
                 continue
 
