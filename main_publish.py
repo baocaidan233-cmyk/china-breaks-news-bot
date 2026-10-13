@@ -134,6 +134,7 @@ from core.caption_guard import former_president_violation, invented_biden
 from core.language import is_english_caption
 from core import money_tags
 from core.opinion import opinion_rule
+from core.fact_check import FactChecker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main_publish")
@@ -237,6 +238,39 @@ async def _build_headline_card(winner, uploader: MediaUploader,
     return meta
 
 
+async def _fact_checked(fact_checker: FactChecker, writer: Writer, c, post: str, background: str, is_opinion: bool,
+                        amounts, tagged: bool, source_text: str) -> str | None:
+    """The caption to use after the pre-publish fact check, or None to drop the
+    candidate (2026-10-13, Linear AI-74, core/fact_check.py). User, 10-13: a
+    caption that fails is not thrown away at once -- it may be this round's
+    best story -- the writer gets one rewrite with the checker's reasons, and
+    only a second failure drops it. PASS, UNSURE and a broken check all let
+    the caption through."""
+    first = await fact_checker.check(c.title or "", c.content or "", post, c.url, "draft")
+    if first["verdict"] != "FAIL":
+        return post
+    logger.info("run_cycle: %s — fact check failed, rewriting once: %s", c.url, " | ".join(first["problems"])[:500])
+    new = await writer.rewrite(c.title, c.content, post, first["problems"], context=background, is_opinion=is_opinion,
+                               published_at=c.published_at,
+                               money_note=money_tags.tag_instructions(amounts) if tagged else "")
+    if Writer.is_no_comment(new) or not is_english_caption(new):
+        logger.warning("run_cycle: %s — fact-check rewrite unusable, dropped from batch", c.url)
+        return None
+    if tagged:
+        money_rule = money_tags.check(new, amounts, source_text)
+        if money_rule:
+            logger.warning("run_cycle: %s — fact-check rewrite refused, money: %s", c.url, money_rule)
+            return None
+        new = money_tags.fill(new, amounts)
+    second = await fact_checker.check(c.title or "", c.content or "", new, c.url, "rewrite")
+    if second["verdict"] == "FAIL":
+        logger.warning("run_cycle: %s — fact check failed again after rewrite, dropped from batch: %s",
+                       c.url, " | ".join(second["problems"])[:500])
+        return None
+    logger.info("run_cycle: %s — fact-check rewrite accepted (%s)", c.url, second["verdict"])
+    return new
+
+
 async def run_cycle(
     config,
     embedder: Embedder,
@@ -253,6 +287,7 @@ async def run_cycle(
     caption_cache: CaptionCache,
     dup_strikes: PostedDupStrikes,
     dry_run: bool,
+    fact_checker: FactChecker | None = None,
 ) -> bool:
     """Returns True iff this cycle actually published something — main()'s
     loop uses this to track how recently the channel last posted, so the
@@ -465,6 +500,15 @@ async def run_cycle(
                     if money_rule is None:
                         if tagged:
                             post_content = money_tags.fill(post_content, amounts)
+                        # Fact check before the caption is cached (2026-10-13, AI-74), so a
+                        # cached caption is one that already passed.
+                        if fact_checker is not None:
+                            post_content = await _fact_checked(fact_checker, writer, c, post_content, background,
+                                                               is_opinion, amounts, tagged, source_text)
+                            if post_content is None:
+                                if not dry_run:
+                                    await mark_writer_rejected(config, c.page_id)
+                                continue
                         await caption_cache.set(c.url_hash, post_content)
             else:
                 money_rule = money_tags.check(post_content, amounts, source_text) if tagged else None
@@ -682,6 +726,7 @@ async def main() -> None:
     alerts = AlertNotifier(config)
     extractor = Extractor(config, alerts)
     writer = Writer(config)
+    fact_checker = FactChecker(config)
     staleness_checker = StalenessChecker(config)
     caption_cache = CaptionCache(config)
     dup_strikes = PostedDupStrikes(config)
@@ -698,7 +743,7 @@ async def main() -> None:
             published_this_cycle = False
             try:
                 published_this_cycle = await asyncio.wait_for(
-                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, headline_writer, extractor, writer, staleness_checker, caption_cache, dup_strikes, dry_run),
+                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, headline_writer, extractor, writer, staleness_checker, caption_cache, dup_strikes, dry_run, fact_checker),
                     timeout=config.cycle_timeout_seconds,
                 )
             except asyncio.TimeoutError:

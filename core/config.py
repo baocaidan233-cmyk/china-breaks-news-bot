@@ -666,6 +666,20 @@ class PreScoreConfig(BaseModel):
     threshold: float | None = None
 
 
+class FactCheckConfig(BaseModel):
+    """Pre-publish fact check (2026-10-13, Linear AI-74, core/fact_check.py).
+    Claude Haiku reads the article and the caption and says whether every
+    fact in the caption is in the article. A FAIL gets one rewrite by the
+    writer with the checker's reasons, then a second check; a second FAIL
+    drops the candidate. UNSURE and any API error let the caption through."""
+    enabled: bool = True
+    api_key: str = ""  # ANTHROPIC_API_KEY in .env
+    model: str = "claude-haiku-5-5"
+    effort: str = "medium"
+    prompt_file: str = "prompts/fact_check_prompt.txt"
+    timeout_seconds: float = 60.0
+
+
 class AppConfig(BaseModel):
     notion: NotionConfig = Field(default_factory=NotionConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
@@ -680,6 +694,7 @@ class AppConfig(BaseModel):
     gettr: GettrConfig = Field(default_factory=GettrConfig)
     publish: PublishConfig = Field(default_factory=PublishConfig)
     dynamic_publish: DynamicPublishConfig = Field(default_factory=DynamicPublishConfig)
+    fact_check: FactCheckConfig = Field(default_factory=FactCheckConfig)
     # Candidate freshness window — matches AM1ST's own 3h (the old n8n
     # system's global_config node value was 6h in the version this port
     # was originally based on, but the current live system tightened it
@@ -712,6 +727,7 @@ _ENV_OVERRIDES = {
     ("qdrant", "api_key"): "QDRANT_API_KEY",
     ("gettr", "user_id"): "GETTR_USER_ID",
     ("gettr", "user_token"): "GETTR_USER_TOKEN",
+    ("fact_check", "api_key"): "ANTHROPIC_API_KEY",
 }
 
 

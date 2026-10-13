@@ -22,3 +22,4 @@ Pillow>=10.0  # agents/headline_card.py draws the 1:1 card posted in place of a 
 # render_client.py, a plain httpx POST), not a Playwright instance this
 # process launches itself. The actual Chromium dependency now lives only
 # in that separate, shared service's own venv.
+anthropic>=1.13

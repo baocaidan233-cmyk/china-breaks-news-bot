@@ -105,6 +105,50 @@ class Writer:
         the model sees them. Optional and fails open: without it the message
         carries today's date alone, which is what it carried before.
         """
+        user_message = self._user_message(title, article, context, is_opinion, published_at, money_note, english_retry)
+        resp = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": self._system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            **self._extra,
+        )
+        post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
+        opening = None
+        if self._hook_prompt and not self.is_no_comment(post):
+            post, opening = await self._rewrite_opening(title, article, post)
+        self._log_call(title, article, context, is_opinion, published_at, post, opening)
+        return post
+
+    async def rewrite(self, title: str, article: str, draft: str, problems: list[str], context: str = "",
+                      is_opinion: bool = False, published_at=None, money_note: str = "") -> str:
+        """One rewrite of a caption the fact check failed (2026-10-13, Linear
+        AI-74, core/fact_check.py): the same request as write(), the failed
+        draft as the model's own answer, then the checker's reasons. Offline,
+        12 of 13 wrong drafts came back right this way, against about 7 in 10
+        for a blind second draft. The caller checks the result again."""
+        user_message = self._user_message(title, article, context, is_opinion, published_at, money_note, False)
+        fix = ("A fact-checker compared your post with the article and found these problems:\n"
+               + "\n".join(f"- {p}" for p in problems)
+               + "\n\nRewrite the post so that every fact matches the article. Fix these problems and "
+                 "nothing else; keep the rest, the two-part format and the word limit. Output only the post.")
+        resp = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": self._system_prompt},
+                {"role": "user", "content": user_message},
+                {"role": "assistant", "content": draft},
+                {"role": "user", "content": fix},
+            ],
+            **self._extra,
+        )
+        post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
+        self._log_call(title, article, context, is_opinion, published_at, post, {"rewrite_of": draft, "problems": problems})
+        return post
+
+    @staticmethod
+    def _user_message(title, article, context, is_opinion, published_at, money_note, english_retry) -> str:
         user_message = (f"{date_block(article, published_at)}\n\n"
                         f"Title:  {title}\n\nArticle: {article}")
         if context:
@@ -133,20 +177,7 @@ class Writer:
                 "whatever language the article is in. Translate every name and word; "
                 "do not copy any of the original script."
             )
-        resp = await self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": self._system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            **self._extra,
-        )
-        post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
-        opening = None
-        if self._hook_prompt and not self.is_no_comment(post):
-            post, opening = await self._rewrite_opening(title, article, post)
-        self._log_call(title, article, context, is_opinion, published_at, post, opening)
-        return post
+        return user_message
 
     async def _rewrite_opening(self, title: str, article: str, post: str) -> tuple[str, dict | None]:
         """Rewrites only the first paragraph of `post` (2026-10-03, writer step 2).
