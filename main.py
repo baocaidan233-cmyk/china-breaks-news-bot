@@ -73,6 +73,7 @@ from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
 from core.config import load_config
 from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, cross_cycle_verdict, is_offtopic_url_section, log_decision, no_conflicting_specifics, opinion_mismatch, strong_same_event_evidence, verify_compatibility
+from core.guard_judge import guard_releases
 from core.hashing import cosine_similarity, tokenize
 from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
@@ -522,7 +523,7 @@ async def run_cycle(
                     matched = candidate
                 else:
                     # AMBIGUOUS, or a shared entity below rule_merge_floor: the judge decides.
-                    same, llm_raw = await event_verifier.same_event(rep_text, cluster_text)
+                    same, llm_raw = await event_verifier.same_event_store(rep_text, cluster_text)
                     log_decision(config, {**log_record, "resolved_by": "llm", "llm_same_event_raw": llm_raw, "final_verdict": "SAME_OCCURRENCE" if same else "RELATED_DIFFERENT_EVENT"})
                     if not same:
                         logger.info("run_cycle: cluster %d — candidate event %s is RELATED_DIFFERENT_EVENT (LLM tier), trying next candidate", cluster_idx, candidate.get("event_id"))
@@ -591,9 +592,15 @@ async def run_cycle(
         # entity_verifier.event_guard_min_cosine, and are logged -- a wrong
         # merge used to discard a fresh story with no record anywhere.
         guard_eligible = matched is not None and (matched.get("_score", 0.0) or 0.0) >= config.entity_verifier.event_guard_min_cosine
+        # 2026-10-15 (AI-69, port of AM1ST ef2f7a5): both guards ask
+        # core/guard_judge.py (Claude Haiku, this channel's list of major
+        # developments) before dropping and drop only on NO_NEW. A judge
+        # failure drops as before. Released by the first guard, the cluster
+        # is not judged again by the second.
+        guard_released = False
         if guard_eligible and matched.get("published") and (
             matched.get("_score", 0.0) >= threshold or subtype in ("RESTATEMENT", "CORROBORATION")
-        ):
+        ) and not (guard_released := await guard_releases(config, "published_event", members, matched, cluster_text)):
             log_decision(config, {
                 "check_type": "event_guard_drop", "reason": "already_published_event",
                 "candidate_url": members[0][0].url, "event_id": matched.get("event_id"),
@@ -617,13 +624,13 @@ async def run_cycle(
         # article with nothing new to say, just because that particular
         # article itself was freshly crawled. A genuine CORE_UPDATE on an
         # old event still gets through — that's real news.
-        if guard_eligible and subtype in ("RESTATEMENT", "CORROBORATION"):
+        if guard_eligible and subtype in ("RESTATEMENT", "CORROBORATION") and not guard_released:
             event_age_hours = (int(time.time()) - matched.get("first_seen_at", int(time.time()))) / 3600
             max_age_hours = (
                 config.publish.weekday_max_age_hours if _is_weekday(datetime.now(timezone.utc))
                 else config.publish.weekend_max_age_hours
             )
-            if event_age_hours > max_age_hours:
+            if event_age_hours > max_age_hours and not await guard_releases(config, "stale_event", members, matched, cluster_text):
                 log_decision(config, {
                     "check_type": "event_guard_drop", "reason": "stale_event",
                     "candidate_url": members[0][0].url, "event_id": matched.get("event_id"),

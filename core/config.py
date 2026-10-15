@@ -242,6 +242,23 @@ class EntityVerifierConfig(BaseModel):
     hub_key_prefix: str = "chinabreaks:hub:"  # Redis key namespace for the token/pair historical-hub-count index — separate namespace from redis.key_prefix's URL-hash dedup, same REDIS_URL
     same_event_prompt_file: str = "prompts/same_event_prompt.txt"
     same_news_prompt_file: str = "prompts/same_news_prompt.txt"  # 2026-10-12 publish-side judge, core/same_news.py (AI-60)
+    # 2026-10-15 (AI-60/AI-69, port of AM1ST, user: switch every judge Haiku
+    # measured better on): Claude Haiku answers first, the OpenAI model when
+    # Haiku cannot (out of credit, an error -- core/haiku.py). Key
+    # JUDGE_ANTHROPIC_API_KEY, separate from the fact check's ANTHROPIC_API_KEY.
+    # - same_news_haiku: the publish-side repeat judge (core/same_news.py).
+    # - event_judge_haiku: the event store's LLM tier asks
+    #   same_event_store_prompt_file (one event = the happening plus its
+    #   follow-ups and responses) instead of same_event_prompt_file.
+    # - guard_judge_enabled: the two event-store guards in main.py ask
+    #   core/guard_judge.py before dropping and drop only on NO_NEW;
+    #   guard_judge_prompt_file is this channel's list of major developments.
+    haiku_api_key: str = ""
+    same_news_haiku: bool = True
+    event_judge_haiku: bool = True
+    same_event_store_prompt_file: str = "prompts/same_event_store_prompt.txt"
+    guard_judge_enabled: bool = True
+    guard_judge_prompt_file: str = "prompts/guard_judge_prompt.txt"
     update_subtype_prompt_file: str = "prompts/update_subtype_prompt.txt"
     related_event_prompt_file: str = "prompts/related_event_prompt.txt"  # EventVerifier.related_event() — see core/event_identity.py
     log_path: str = "logs/event_identity_decisions.jsonl"
@@ -728,6 +745,7 @@ _ENV_OVERRIDES = {
     ("gettr", "user_id"): "GETTR_USER_ID",
     ("gettr", "user_token"): "GETTR_USER_TOKEN",
     ("fact_check", "api_key"): "ANTHROPIC_API_KEY",
+    ("entity_verifier", "haiku_api_key"): "JUDGE_ANTHROPIC_API_KEY",
 }
 
 

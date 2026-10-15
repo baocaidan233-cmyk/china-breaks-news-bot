@@ -33,6 +33,7 @@ import spacy
 
 from collections import Counter
 
+from core import haiku
 from core.config import AppConfig
 from core.hashing import tokenize, weighted_overlap
 from core.language import _cjk_ratio, _is_cjk_char
@@ -1731,6 +1732,9 @@ class EventVerifier:
         self._client = create_openai_client(config)
         self._model = config.openai.chat_model
         self._same_event_prompt = Path(config.entity_verifier.same_event_prompt_file).read_text(encoding="utf-8")
+        ev = config.entity_verifier
+        self._same_event_store_prompt = Path(ev.same_event_store_prompt_file).read_text(encoding="utf-8")
+        self._haiku_key = ev.haiku_api_key if ev.event_judge_haiku else ""
         self._subtype_prompt = Path(config.entity_verifier.update_subtype_prompt_file).read_text(encoding="utf-8")
         self._related_event_prompt = Path(config.entity_verifier.related_event_prompt_file).read_text(encoding="utf-8")
 
@@ -1779,6 +1783,25 @@ class EventVerifier:
         raw = await self._ask(self._same_event_prompt, f"TEXT A:\n{text_a}\n\nTEXT B:\n{text_b}", max_tokens=80)
         verdict = self._extract_field(raw, "VERDICT").upper()
         return verdict.startswith("SAME"), raw
+
+    _EVENT_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["a", "b", "verdict"],
+                     "properties": {"a": {"type": "string"}, "b": {"type": "string"},
+                                    "verdict": {"type": "string", "enum": ["SAME", "DIFFERENT", "UNCERTAIN"]}}}
+
+    async def same_event_store(self, text_a: str, text_b: str) -> tuple[bool, str]:
+        """The event store's LLM tier (2026-10-15, port of AM1ST, AI-69): does
+        B belong to A's event, the event being one real-world happening with
+        its follow-ups and responses (prompts/same_event_store_prompt.txt),
+        asked of Claude Haiku. Offline on China Breaks / Leading News / Market
+        Watcher pairs it merged no two different events. UNCERTAIN is not
+        merged. When Haiku cannot answer, same_event() answers as before.
+        Only the event store asks this; the publish-side check keeps
+        same_event()."""
+        if self._haiku_key:
+            d = await haiku.ask(self._haiku_key, self._same_event_store_prompt, f"A:\n{text_a}\n\nB:\n{text_b}", self._EVENT_SCHEMA)
+            if d and d.get("verdict") in ("SAME", "DIFFERENT", "UNCERTAIN"):
+                return d["verdict"] == "SAME", json.dumps({**d, "model": haiku.MODEL}, ensure_ascii=False)
+        return await self.same_event(text_a, text_b)
 
     async def classify_subtype(self, text_a: str, text_b: str) -> tuple[str, str]:
         raw = await self._ask(self._subtype_prompt, f"TEXT A:\n{text_a}\n\nTEXT B:\n{text_b}", max_tokens=60)
