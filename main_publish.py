@@ -243,26 +243,21 @@ async def _fact_checked(fact_checker: FactChecker, writer: Writer, c, post: str,
     """The caption to use after the pre-publish fact check, or None to drop the
     candidate (2026-10-13, Linear AI-74, core/fact_check.py). User, 10-13: a
     caption that fails is not thrown away at once -- it may be this round's
-    best story -- the writer gets one rewrite with the checker's reasons, and
+    best story -- it gets one correction with the checker's reasons, and
     only a second failure drops it. PASS, UNSURE and a broken check all let
-    the caption through."""
+    the caption through. 2026-10-15 (user: 四个新闻频道也应该让 haiku 重写): the
+    correction is Claude Haiku's (FactChecker.fix), never the writer model's;
+    it edits the filled caption, so the money tags are not redone -- the
+    second check, with our conversions taken out, reads its figures."""
     ignore = money_tags.conversions(amounts) if tagged else []
     first = await fact_checker.check(c.title or "", c.content or "", post, c.url, "draft", ignore=ignore)
     if first["verdict"] != "FAIL":
         return post
-    logger.info("run_cycle: %s — fact check failed, rewriting once: %s", c.url, " | ".join(first["problems"])[:500])
-    new = await writer.rewrite(c.title, c.content, post, first["problems"], context=background, is_opinion=is_opinion,
-                               published_at=c.published_at,
-                               money_note=money_tags.tag_instructions(amounts) if tagged else "")
-    if Writer.is_no_comment(new) or not is_english_caption(new):
-        logger.warning("run_cycle: %s — fact-check rewrite unusable, dropped from batch", c.url)
+    logger.info("run_cycle: %s — fact check failed, Haiku correcting once: %s", c.url, " | ".join(first["problems"])[:500])
+    new = await fact_checker.fix(c.title or "", c.content or "", post, first["problems"])
+    if not new or Writer.is_no_comment(new) or not is_english_caption(new):
+        logger.warning("run_cycle: %s — fact-check correction unusable, dropped from batch", c.url)
         return None
-    if tagged:
-        money_rule = money_tags.check(new, amounts, source_text)
-        if money_rule:
-            logger.warning("run_cycle: %s — fact-check rewrite refused, money: %s", c.url, money_rule)
-            return None
-        new = money_tags.fill(new, amounts)
     second = await fact_checker.check(c.title or "", c.content or "", new, c.url, "rewrite", ignore=ignore)
     if second["verdict"] == "FAIL":
         logger.warning("run_cycle: %s — fact check failed again after rewrite, dropped from batch: %s",
