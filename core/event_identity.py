@@ -1794,13 +1794,16 @@ class EventVerifier:
         its follow-ups and responses (prompts/same_event_store_prompt.txt),
         asked of Claude Haiku. Offline on China Breaks / Leading News / Market
         Watcher pairs it merged no two different events. UNCERTAIN is not
-        merged. When Haiku cannot answer, same_event() answers as before.
+        merged. same_event() answers only when the Haiku key is out of
+        credit; any other Haiku failure is not merged (user 10-15).
         Only the event store asks this; the publish-side check keeps
         same_event()."""
         if self._haiku_key:
             d = await haiku.ask(self._haiku_key, self._same_event_store_prompt, f"A:\n{text_a}\n\nB:\n{text_b}", self._EVENT_SCHEMA)
             if d and d.get("verdict") in ("SAME", "DIFFERENT", "UNCERTAIN"):
                 return d["verdict"] == "SAME", json.dumps({**d, "model": haiku.MODEL}, ensure_ascii=False)
+            if haiku.available():  # user 10-15: only no credit goes to same_event(); otherwise not merged
+                return False, json.dumps({"error": "Haiku could not answer", "model": haiku.MODEL})
         return await self.same_event(text_a, text_b)
 
     async def classify_subtype(self, text_a: str, text_b: str) -> tuple[str, str]:
