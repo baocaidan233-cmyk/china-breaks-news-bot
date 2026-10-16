@@ -108,7 +108,7 @@ from agents.candidate_selector import select_batch
 from agents.embedder import Embedder
 from agents.extractor import Extractor
 from agents.gettr_publisher import GettrPublisher
-from agents.card_headline import CardHeadlineWriter
+from agents.card_headline import CardHeadlineWriter, card_text_problem
 from agents.card_photo import fetch_card_photo
 from agents.headline_card import card_attribution, make_split_card, make_text_card, uses_headline_card
 from agents.media_uploader import MediaUploader
@@ -199,6 +199,15 @@ async def _build_headline_card(winner, uploader: MediaUploader,
     if headline and money_tags.check(f"{headline}\n{deck}", money_tags.extract(winner.post_content)):
         logger.info("card: headline figure not in the caption, falling back for %s", winner.url)
         headline, deck = "", ""
+    # The rest of the caption's gates, on the card text (2026-10-16, AI-89):
+    # gpt-4o-mini writes it from the caption and nothing checked it. Any
+    # failure falls back the same way.
+    if headline:
+        problem = card_text_problem(headline, deck, winner.post_content, getattr(winner, "content", "") or "")
+        if problem:
+            logger.info("card: headline/deck refused (%s), falling back for %s — %.80s / %.60s",
+                        problem, winner.url, headline, deck)
+            headline, deck = "", ""
     if not headline:
         headline, deck = _caption_first_sentence(winner.post_content), ""
         logger.info("card: headline writer gave nothing, falling back to the caption for %s",
@@ -238,33 +247,58 @@ async def _build_headline_card(winner, uploader: MediaUploader,
     return meta
 
 
+def _time_words(c, text: str) -> str:
+    """fix_caption_time_words() on a caption, logged like run_cycle's own call."""
+    text, time_fixes = fix_caption_time_words(text, c.title or "", getattr(c, "content", "") or "",
+                                              c.published_at, c.url)
+    if time_fixes:
+        logger.info("run_cycle: %s — time words: %s", c.url, " | ".join(time_fixes))
+    return text
+
+
 async def _fact_checked(fact_checker: FactChecker, writer: Writer, c, post: str, background: str, is_opinion: bool,
-                        amounts, tagged: bool, source_text: str) -> str | None:
-    """The caption to use after the pre-publish fact check, or None to drop the
-    candidate (2026-10-13, Linear AI-74, core/fact_check.py). User, 10-13: a
+                        amounts, tagged: bool, source_text: str) -> tuple[str | None, bool]:
+    """(caption, checked): the caption to use after the pre-publish fact check,
+    or None to drop the candidate (2026-10-13, Linear AI-74, core/fact_check.py). User, 10-13: a
     caption that fails is not thrown away at once -- it may be this round's
     best story -- it gets one correction with the checker's reasons, and
     only a second failure drops it. PASS, UNSURE and a broken check all let
     the caption through. 2026-10-15 (user: 四个新闻频道也应该让 haiku 重写): the
     correction is Claude Haiku's (FactChecker.fix), never the writer model's;
     it edits the filled caption, so the money tags are not redone -- the
-    second check, with our conversions taken out, reads its figures."""
+    second check, with our conversions taken out, reads its figures.
+
+    2026-10-16 (Linear AI-89): `checked` is True only when a model really
+    judged the text returned (PASS or UNSURE); a check that could not run at
+    all (ERROR, OFF) lets the caption through unchecked, and the caller then
+    caches it without the checked marker so the next cycle checks it again.
+    Time words are fixed on the draft and on the correction before each check,
+    so no text change lands after the last check; and for a CJK-amount source
+    the correction may keep or delete an amount but never add or change one."""
+    post = _time_words(c, post)
     ignore = money_tags.conversions(amounts) if tagged else []
     first = await fact_checker.check(c.title or "", c.content or "", post, c.url, "draft", ignore=ignore)
     if first["verdict"] != "FAIL":
-        return post
+        return post, first["verdict"] in ("PASS", "UNSURE")
     logger.info("run_cycle: %s — fact check failed, Haiku correcting once: %s", c.url, " | ".join(first["problems"])[:500])
     new = await fact_checker.fix(c.title or "", c.content or "", post, first["problems"])
     if not new or Writer.is_no_comment(new) or not is_english_caption(new):
         logger.warning("run_cycle: %s — fact-check correction unusable, dropped from batch", c.url)
-        return None
+        return None, True
+    new = _time_words(c, new)
+    if tagged:
+        added = money_tags.added_amounts(post, new)
+        if added:
+            logger.warning("run_cycle: %s — fact-check correction changed a money figure (%s), dropped from batch",
+                           c.url, ", ".join(a.raw for a in added))
+            return None, True
     second = await fact_checker.check(c.title or "", c.content or "", new, c.url, "rewrite", ignore=ignore)
     if second["verdict"] == "FAIL":
         logger.warning("run_cycle: %s — fact check failed again after rewrite, dropped from batch: %s",
                        c.url, " | ".join(second["problems"])[:500])
-        return None
+        return None, True
     logger.info("run_cycle: %s — fact-check rewrite accepted (%s)", c.url, second["verdict"])
-    return new
+    return new, second["verdict"] in ("PASS", "UNSURE")
 
 
 async def run_cycle(
@@ -490,6 +524,7 @@ async def run_cycle(
                     )
                     if not Writer.is_no_comment(post_content) and not is_english_caption(post_content):
                         logger.warning("run_cycle: %s — caption still not English, dropped from batch", c.url)
+                        await caption_cache.delete(c.url_hash)
                         continue
                 if not Writer.is_no_comment(post_content):
                     money_rule = money_tags.check(post_content, amounts, source_text) if tagged else None
@@ -497,19 +532,43 @@ async def run_cycle(
                         if tagged:
                             post_content = money_tags.fill(post_content, amounts)
                         # Fact check before the caption is cached (2026-10-13, AI-74), so a
-                        # cached caption is one that already passed.
+                        # cached caption is one that already passed. 2026-10-16 (AI-89):
+                        # marked checked only when a model really judged it, so one whose
+                        # check could not run is checked again on its next cache hit.
+                        checked = False
                         if fact_checker is not None:
-                            post_content = await _fact_checked(fact_checker, writer, c, post_content, background,
-                                                               is_opinion, amounts, tagged, source_text)
+                            post_content, checked = await _fact_checked(fact_checker, writer, c, post_content, background,
+                                                                        is_opinion, amounts, tagged, source_text)
                             if post_content is None:
                                 if not dry_run:
                                     await mark_writer_rejected(config, c.page_id)
                                 continue
-                        await caption_cache.set(c.url_hash, post_content)
+                        await caption_cache.set(c.url_hash, post_content, checked=checked)
             else:
+                # A cache hit used to skip the fact check (2026-10-16, AI-89): a
+                # caption cached before the check existed, or whose check could not
+                # run, went out unchecked. One without the checked marker goes
+                # through the same check and correction as a fresh caption; c.content
+                # is the article extracted above. A dropped one is uncached, so the
+                # next cycle writes it afresh.
+                if fact_checker is not None and not Writer.is_no_comment(post_content) \
+                        and not await caption_cache.is_checked(c.url_hash, post_content):
+                    logger.info("run_cycle: %s — cached caption not fact-checked yet, checking it", c.url)
+                    new_content, checked = await _fact_checked(fact_checker, writer, c, post_content, background,
+                                                               is_opinion, amounts, tagged, source_text)
+                    if new_content is None:
+                        await caption_cache.delete(c.url_hash)
+                        if not dry_run:
+                            await mark_writer_rejected(config, c.page_id)
+                        continue
+                    if new_content != post_content or checked:
+                        post_content = new_content
+                        await caption_cache.set(c.url_hash, post_content, checked=checked)
+                # After the check, so a correction is held to the money rule too.
                 money_rule = money_tags.check(post_content, amounts, source_text) if tagged else None
             if not Writer.is_no_comment(post_content) and money_rule:
                 logger.warning("run_cycle: %s — caption refused, money: %s", c.url, money_rule)
+                await caption_cache.delete(c.url_hash)
                 if not dry_run:
                     await mark_writer_rejected(config, c.page_id)
                 continue
@@ -519,7 +578,10 @@ async def run_cycle(
             # gives, written as that day in US Eastern; one the source does not give
             # is cut with its preposition. Replayed on 547 published posts of the four
             # channels: 7 changed, none wrongly. Runs on cached captions too, and does
-            # nothing when there is no source text to check against.
+            # nothing when there is no source text to check against. 2026-10-16
+            # (AI-89): also run inside _fact_checked() before each check; kept here
+            # for the paths that skip the check -- idempotent (replayed on 2,317
+            # China Breaks captions, a second pass changed 0).
             post_content, time_fixes = fix_caption_time_words(post_content, c.title or "", getattr(c, "content", "") or "",
                                                                c.published_at, c.url)
             if time_fixes:
@@ -542,6 +604,7 @@ async def run_cycle(
                     "run_cycle: %s — caption blocked by title_guard rule %s, dropped from batch",
                     c.url, title_rule,
                 )
+                await caption_cache.delete(c.url_hash)  # 2026-10-16, AI-89: not reused next cycle
                 continue
 
             # A caption calling Trump a former president (2026-10-13, core/caption_guard.py;
@@ -554,6 +617,7 @@ async def run_cycle(
                     "run_cycle: %s — caption blocked by caption_guard rule %s, dropped from batch",
                     c.url, violation,
                 )
+                await caption_cache.delete(c.url_hash)  # 2026-10-16, AI-89: not reused next cycle
                 continue
 
             # A caption that names Biden when the article never does (2026-10-11,
@@ -564,6 +628,7 @@ async def run_cycle(
                     "run_cycle: %s — caption blocked by caption_guard rule invented-biden, dropped from batch",
                     c.url,
                 )
+                await caption_cache.delete(c.url_hash)  # 2026-10-16, AI-89: not reused next cycle
                 continue
 
             if Writer.is_no_comment(post_content):

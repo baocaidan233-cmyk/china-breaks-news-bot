@@ -534,3 +534,23 @@ def check(text: str, amounts: list[Amount], source_text: str = "") -> str | None
         if not any(_matches(amount, s) for s in known):
             return f"amount the model typed itself does not match the source: {amount.raw}"
     return None
+
+
+def added_amounts(before: str, after: str) -> list[Amount]:
+    """Money figures in `after` that `before` does not have, by figure and
+    currency as written (2026-10-16, Linear AI-89). For a CJK-amount source the
+    caption reaching the fact check was filled by fill(), and Haiku's
+    correction (core/fact_check.py's FactChecker.fix) used to go out with
+    nothing checking its money: a correction may keep or delete an amount, but
+    any figure it introduces or changes is refused. Both texts are rendered
+    English, which extract() reads ("12.2 billion yuan (about $1.7 billion)"
+    is 12.2e9 CNY and 1.7e9 USD); the approximation word is not compared."""
+    from math import isclose
+
+    def same(a: Amount, b: Amount) -> bool:
+        return (a.currency == b.currency and isclose(a.value, b.value, rel_tol=1e-9)
+                and (a.high is None) == (b.high is None)
+                and (a.high is None or isclose(a.high, b.high, rel_tol=1e-9)))
+
+    had = extract(before)
+    return [a for a in extract(after) if not any(same(a, b) for b in had)]
