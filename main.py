@@ -79,7 +79,7 @@ from core.hot_topics import fetch_active_hot_topics
 from core.notion_candidates import write_candidate
 from core.notion_sources import load_rss_sources
 from core.prescore import PreScorer, log_prescore_decision
-from core.roundup import roundup_rule
+from core.roundup import roundup_rule, newsletter_rule
 from core.opinion import opinion_rule
 from core.qdrant_store import EventStore, QdrantStore, ensure_collection_with_retry
 from core.redis_store import RedisStore
@@ -157,7 +157,7 @@ async def run_cycle(
     before_roundup = len(survivors)
     kept = []
     for c in survivors:
-        rule = roundup_rule(c.title or "", c.url) or opinion_rule(c.title or "")
+        rule = roundup_rule(c.title or "", c.url) or opinion_rule(c.title or "") or newsletter_rule(c.description or "", c.url)
         if rule:
             logger.info("run_cycle: %s dropped — %s (%s)", c.url, rule, (c.title or "")[:120])
         else:
