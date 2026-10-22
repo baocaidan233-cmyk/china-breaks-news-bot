@@ -28,6 +28,7 @@ Measured on this channel's own 1836 pooled candidates (2026-09-29): 8 hits,
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 # One named event covered live or in full is a single subject, whatever the
@@ -78,10 +79,34 @@ _CJK_TITLE_RE = re.compile(
 _LIVE_ENTRY_RE = re.compile(r"/(live-blog-update|liveblog_entry|liveblog-entry)/", re.IGNORECASE)
 
 
+# Date-stamped issues (owner, 2026-10-22: 另外几个频道也要加; AM1ST first,
+# 485b488). A numeric date in the title marks one day's issue, episode or
+# stream, not a story. On this channel's pre-score log since 09-30 (218k
+# titles): 96 hits, every one a Bild horoscope, lotto draw, TV preview or
+# football show, RIA's daily war map, a Mexican quake live page or a puzzle.
+# Only a date in this year or last counts: Zeit's "Angriff auf Israel
+# 7.10.2023: ..." is a story about the 2023 attack, and "PHP 8.4.27" is a
+# version number. Nor does a date touching a quote mark ("'Remember 7.10.23'").
+_DATED_TITLE = re.compile(r"(?<![\w'‘’\"“”])\d{1,2}[./]\d{1,2}[./]((?:20)?\d{2})(?![\w'‘’\"“”])")
+
+
+def _dated_issue(title: str) -> bool:
+    this_year = datetime.now(timezone.utc).year
+    for m in _DATED_TITLE.finditer(title or ""):
+        year = int(m.group(1))
+        if year < 100:
+            year += 2000
+        if this_year - 1 <= year <= this_year:
+            return True
+    return False
+
+
 def roundup_rule(title: str, url: str) -> str | None:
     """The name of the rule this candidate breaks, or None."""
     text = title or ""
     lowered = text.lower()
+    if _dated_issue(text):
+        return "dated_issue"
     if any(name in lowered for name in _SINGLE_SUBJECT_COLUMNS):
         return None
     if _SINGLE_EVENT.search(text):
