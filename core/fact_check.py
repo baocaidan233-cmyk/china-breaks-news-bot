@@ -34,6 +34,7 @@ import anthropic
 
 from core.config import AppConfig
 from core.openai_client import create_openai_client
+from core.claude_usage import log_usage
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ class FactChecker:
                 model=self._model, max_tokens=16000, system=self._system,
                 messages=[{"role": "user", "content": user}],
                 output_config={"effort": self._effort, "format": {"type": "json_schema", "schema": _SCHEMA}})
-            usage = {"in": resp.usage.input_tokens, "out": resp.usage.output_tokens}
+            usage = log_usage(resp, 'fact check')
             if resp.stop_reason == "refusal":
                 logger.warning("FactChecker: Haiku refused for %s -- trying %s", url, self._fallback_model)
             else:
@@ -176,6 +177,7 @@ class FactChecker:
             resp = await self._client.messages.create(
                 model=self._model, max_tokens=4000, system=self._fix_system,
                 messages=[{"role": "user", "content": user}], output_config={"effort": "low"})
+            log_usage(resp, "fact check fix")
             if resp.stop_reason == "refusal":
                 logger.warning("FactChecker: Haiku fix refused -- trying %s", self._fallback_model)
             else:
