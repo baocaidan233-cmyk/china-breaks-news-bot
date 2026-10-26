@@ -700,6 +700,16 @@ class FactCheckConfig(BaseModel):
     timeout_seconds: float = 60.0
 
 
+class IngestionConfig(BaseModel):
+    """Full text at ingestion (2026-10-26, core/fulltext.py, from AM1ST AI-29).
+    A summary that only repeats the headline, or is shorter than
+    min_summary_chars, becomes the article's first paragraph."""
+    min_summary_chars: int = 40
+    fulltext_dir: str = "data/fulltext"
+    fulltext_retry_minutes: float = 60
+    fulltext_keep_hours: float = 24
+
+
 class AppConfig(BaseModel):
     notion: NotionConfig = Field(default_factory=NotionConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
@@ -715,6 +725,7 @@ class AppConfig(BaseModel):
     publish: PublishConfig = Field(default_factory=PublishConfig)
     dynamic_publish: DynamicPublishConfig = Field(default_factory=DynamicPublishConfig)
     fact_check: FactCheckConfig = Field(default_factory=FactCheckConfig)
+    ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     # Candidate freshness window — matches AM1ST's own 3h (the old n8n
     # system's global_config node value was 6h in the version this port
     # was originally based on, but the current live system tightened it

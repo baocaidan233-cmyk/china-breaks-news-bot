@@ -122,6 +122,7 @@ from agents.trending import fetch_trending_headlines
 from agents.writer import Writer
 from core.time_words import fix_caption_time_words
 from core.alerts import AlertNotifier
+from core import fulltext
 from core.config import load_config
 from core.event_identity import EventVerifier
 from core.notion_candidates import has_unpublished_hot_candidate, mark_dedup_rejected, mark_extraction_failed, mark_send_status, mark_writer_rejected, query_eligible_candidates
@@ -424,7 +425,12 @@ async def run_cycle(
         batch = await ranker.rank(batch, trending_headlines)
         ranked_len = len(batch)
         for c in batch:
-            text = await extractor.extract(c.url, sources)
+            # Saved at ingestion (2026-10-26, core/fulltext.py); older articles are fetched here.
+            text = fulltext.load(config, c.url_hash)
+            if text:
+                logger.info("run_cycle: %s — full text from ingestion", c.url)
+            else:
+                text = await extractor.extract(c.url, sources)
             if not text:
                 logger.info("run_cycle: %s dropped — full-text extraction failed (paywall/blocked/empty), refusing to publish off title+description alone", c.url)
                 # 2026-09-06, ported from AM1ST: give up on this candidate

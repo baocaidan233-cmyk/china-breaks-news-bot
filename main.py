@@ -67,10 +67,12 @@ from dotenv import load_dotenv
 
 from agents.candidate_selector import _is_weekday
 from agents.embedder import Embedder
+from agents.extractor import Extractor
 from agents.og_metadata import fetch_link_preview
 from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
+from core import fulltext
 from core.config import load_config
 from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, extract_event_frame, has_china_signal, cross_cycle_verdict, is_offtopic_url_section, log_decision, no_conflicting_specifics, opinion_mismatch, strong_same_event_evidence, verify_compatibility
 from core.guard_judge import guard_releases
@@ -122,6 +124,65 @@ def _looks_like_title_duplicate(title: str, description: str) -> bool:
     return clean_title in clean_desc or clean_desc in clean_title
 
 
+class _SilentAlerts:
+    """agents/extractor.py raises a Notion alert when a cookie source fails; at
+    ingestion that is just an article without text, not something to act on."""
+
+    async def alert(self, page_id: str, message: str) -> None:
+        return None
+
+
+async def _fetch_full_text(config, candidates, sources, retried: set[str]):
+    """Full text at ingestion (2026-10-26, from AM1ST AI-29, user 10-26: 你先把
+    现在的架构移植到CB, 根据CB的频道情况调整): the text of every article that
+    reached this point, saved for the publish cycle (core/fulltext.py). An
+    article with no fetchable text is not scored. agents/extractor.py already
+    renders the page in a browser when the plain fetch fails, so unlike AM1ST
+    there is no second, browser-only pass here; what fails waits
+    ingestion.fulltext_retry_minutes for one more try, then is dropped. Three
+    at a time: the render service is shared with the other bots.
+    Placed after this bot's cheap text filters (roundup, pre-score, URL
+    section, China signal), so only articles that would be scored are fetched.
+    A summary that only repeats the headline, or is shorter than
+    ingestion.min_summary_chars, becomes the article's first paragraph.
+
+    Returns the articles with text."""
+    floor = config.ingestion.min_summary_chars
+    extractor = Extractor(config, _SilentAlerts())
+    gate = asyncio.Semaphore(3)
+    ok: set[str] = set()
+    how: Counter = Counter()
+    wait: list = []
+
+    async def fetch(c):
+        async with gate:
+            try:
+                text = await extractor.extract(c.url, sources)
+            except Exception:
+                logger.exception("run_cycle: extraction failed for %s", c.url)
+                text = None
+        if not text:
+            if c.url_hash in retried:
+                how["given_up"] += 1
+                logger.info("run_cycle: %s dropped — no article text on the second try (%s)", c.url, (c.title or "")[:120])
+            else:
+                how["retry_later"] += 1
+                wait.append(c)
+            return
+        ok.add(c.url_hash)
+        fulltext.save(config, c.url_hash, text)
+        how["second_try" if c.url_hash in retried else "fetched"] += 1
+        if _looks_like_title_duplicate(c.title or "", c.description or "") or len((c.description or "").strip()) < floor:
+            paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) >= 60]
+            c.description = (paragraphs[0] if paragraphs else text.strip())[:400]
+            how["summary_from_text"] += 1
+
+    await asyncio.gather(*(fetch(c) for c in candidates))
+    fulltext.add_retry(config, wait)
+    logger.info("run_cycle: full text for %d of %d: %s", len(ok), len(candidates), dict(how))
+    return [c for c in candidates if c.url_hash in ok]
+
+
 async def run_cycle(
     config, redis_store, qdrant_store, event_store, embedder, scorer, hub_index, event_verifier, dry_run,
     prescorer=None,
@@ -146,6 +207,9 @@ async def run_cycle(
     # --- Layer 1: exact-duplicate URL-hash dedup (Redis) ---
     survivors = [c for c in candidates if await redis_store.claim_new(c.url_hash)]
     logger.info("run_cycle: %d/%d new after URL-hash dedup", len(survivors), len(candidates))
+    pruned = fulltext.prune(config)
+    if pruned:
+        logger.info("run_cycle: pruned %d saved full text(s)", pruned)
     if not survivors:
         return
 
@@ -276,6 +340,18 @@ async def run_cycle(
             "run_cycle: %d/%d skipped Scorer LLM call (no China/CCP signal, pre-filter)",
             prefiltered_count, len(survivors) - offtopic_url_count,
         )
+
+    # --- Layer 1.8: full text (2026-10-26, from AM1ST AI-29) — no text, no
+    # scoring; saved for the publish cycle. See _fetch_full_text(). ---
+    # Articles whose text failed an hour ago get their second try here (they
+    # passed the filters above then). Taken only now, so a cycle that ends
+    # earlier leaves them waiting for the next one.
+    retry = fulltext.take_due(config)
+    if retry:
+        logger.info("run_cycle: %d article(s) back for a second full-text try", len(retry))
+    scoring_pool = await _fetch_full_text(config, scoring_pool + retry, sources, {c.url_hash for c in retry})
+    if not scoring_pool:
+        return
 
     # Manual breaking-news override (2026-08-31, core/hot_topics.py) — every
     # currently-live flag for this bot's own channel, embedded once per
