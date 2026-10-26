@@ -348,6 +348,22 @@ async def run_cycle(
     remaining = candidates
     winner = None
     ranked_len = 0
+
+    # 2026-09-25, ported from AM1ST — retire a candidate the dedup check
+    # keeps rejecting instead of re-extracting and re-writing it every
+    # cycle for the rest of its window. Notion is only written on the
+    # strike that reaches the threshold. See
+    # PublishConfig.posted_dedup_strikes_before_retire.
+    async def _retire_if_settled(c) -> None:
+        strikes = await dup_strikes.strike(c.url_hash)
+        if strikes < config.publish.posted_dedup_strikes_before_retire:
+            return
+        if dry_run:
+            logger.info("run_cycle: dry-run — would retire %s after %d duplicate verdicts", c.url, strikes)
+            return
+        if await mark_dedup_rejected(config, c.page_id):
+            logger.info("run_cycle: %s retired from the pool — %d duplicate verdicts", c.url, strikes)
+
     for attempt in range(1, config.publish.max_widen_attempts + 1):
         batch = select_batch(remaining, config)
         if not batch:
@@ -394,7 +410,19 @@ async def run_cycle(
                 logger.info("run_cycle: widen attempt %d — every candidate was an already-published event", attempt)
                 continue
 
-        generated = []
+        # Rank first, then one candidate at a time (2026-10-26, user: 你先把现在的架构
+        # 移植到CB, 根据CB的频道情况调整; AM1ST bb0fe24, AI-24). The whole batch used to
+        # be extracted, checked, written and fact-checked, then ranked, and one
+        # post went out: 10-19..10-25, 2.8 captions and 3 Haiku fact checks per
+        # post, 45-92 captions a day written only to be refused as repeats. Now
+        # the first candidate that passes every step is published. The ranker
+        # read the caption for its trending similarity; it reads the title now
+        # (agents/priority_ranker.py falls back to it) -- on 898 published posts the trending bonus showed no
+        # link to engagement (median 25 / 24.5 / 28 at 0 / +1 / +2), nor did the
+        # score itself. The repeat check stays after writing: it compares our
+        # caption with our posts (no ingestion-side judge here, unlike AM1ST).
+        batch = await ranker.rank(batch, trending_headlines)
+        ranked_len = len(batch)
         for c in batch:
             text = await extractor.extract(c.url, sources)
             if not text:
@@ -653,34 +681,14 @@ async def run_cycle(
             # agents/posted_dedup_checker.py's content_for_embedding(), which
             # strips this exact suffix back off when it is present.
             c.post_content = post_content if uses_headline_card(c.author, c.url) else f"{post_content}\n\n{c.url}"
-            generated.append(c)
+            winner = await find_publishable([c], embedder, posted_store, event_verifier, config, on_duplicate=_retire_if_settled)
+            if winner is not None:
+                break
 
-        if not generated:
-            logger.info("run_cycle: widen attempt %d — nothing survived extraction/content-gen", attempt)
-            continue
-
-        ranked = await ranker.rank(generated, trending_headlines)
-        ranked_len = len(ranked)
-        # 2026-09-25, ported from AM1ST — retire a candidate the dedup check
-        # keeps rejecting instead of re-extracting and re-writing it every
-        # cycle for the rest of its window. Notion is only written on the
-        # strike that reaches the threshold. See
-        # PublishConfig.posted_dedup_strikes_before_retire.
-        async def _retire_if_settled(c) -> None:
-            strikes = await dup_strikes.strike(c.url_hash)
-            if strikes < config.publish.posted_dedup_strikes_before_retire:
-                return
-            if dry_run:
-                logger.info("run_cycle: dry-run — would retire %s after %d duplicate verdicts", c.url, strikes)
-                return
-            if await mark_dedup_rejected(config, c.page_id):
-                logger.info("run_cycle: %s retired from the pool — %d duplicate verdicts", c.url, strikes)
-
-        winner = await find_publishable(ranked, embedder, posted_store, event_verifier, config, on_duplicate=_retire_if_settled)
         if winner is not None:
             logger.info("run_cycle: widen attempt %d — found a publishable candidate", attempt)
             break
-        logger.info("run_cycle: widen attempt %d — all candidates were duplicates/errored, widening", attempt)
+        logger.info("run_cycle: widen attempt %d — no candidate of the batch made it, widening", attempt)
 
     log_publish_outcome(ranked_len, winner)
     if winner is None:
