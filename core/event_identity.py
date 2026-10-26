@@ -420,6 +420,22 @@ def _build_china_signal_keywords() -> frozenset[str]:
         "tencent", "腾讯", "騰訊",
         "tiktok", "bytedance", "字节跳动", "字節跳動",
         "deepseek",
+        # 2026-10-26: the CCP's own name and core CB topics were missing
+        # (user: 关键词拦截：漏了核心稿，要修). Over 10-24..26 the filter
+        # dropped "Pentagon designates Confucius Institutes a national
+        # security threat" (twice), RFI's "中共五中全会会否有重大权力布局",
+        # Taiwanese reports on CCP transnational repression and election
+        # interference, and "Washington's $14 billion arms sale to Taipei".
+        # Measured on the same days: 24 more rejects let through, about 9
+        # Scorer calls a day. Polish "temu" ("ago") collides; accepted, one
+        # Scorer call each.
+        "中共", "共产党", "共產黨", "两岸", "兩岸", "维吾尔", "維吾爾",
+        "孔子学院", "孔子學院", "confucius institute", "confucius institutes",
+        "uyghur", "uyghurs", "uighur", "taipei", "politburo", "plenum",
+        "shein", "temu", "byd", "catl",
+        "pekin", "pekinu", "tajwan", "tajwanu",  # Polish (Pekin also Turkish)
+        "peking", "pékin", "taïwan", "çin",  # German, French, Turkish
+        "тайван", "си цзиньпин",  # Russian
         # 2026-09-07: Chinese-language names for the same institutions —
         # confirmed via real test that "解放军在东海举行实弹演习" only passed
         # coincidentally (via "东海"/East China Sea already being a
