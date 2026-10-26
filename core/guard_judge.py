@@ -44,7 +44,8 @@ async def guard_releases(config, guard: str, members, matched: dict, new_text: s
         if _prompt is None:
             _prompt = Path(ev.guard_judge_prompt_file).read_text(encoding="utf-8")
         event_text = matched.get("text") or matched.get("representative_text", "")
-        d = await haiku.ask(ev.haiku_api_key, _prompt, f"TEXT A:\n{event_text}\n\nTEXT B:\n{new_text}", _SCHEMA)
+        d = await haiku.ask(ev.haiku_api_key, _prompt, f"TEXT A:\n{event_text}\n\nTEXT B:\n{new_text}", _SCHEMA,
+                            cache=True, cache_ttl="1h")
         verdict = (d or {}).get("verdict") or "ERROR"
         if verdict == "ERROR":  # not remembered: the next cycle asks again
             return False

@@ -1807,7 +1807,8 @@ class EventVerifier:
         Only the event store asks this; the publish-side check keeps
         same_event()."""
         if self._haiku_key:
-            d = await haiku.ask(self._haiku_key, self._same_event_store_prompt, f"A:\n{text_a}\n\nB:\n{text_b}", self._EVENT_SCHEMA)
+            d = await haiku.ask(self._haiku_key, self._same_event_store_prompt, f"A:\n{text_a}\n\nB:\n{text_b}", self._EVENT_SCHEMA,
+                                 cache=True, cache_ttl="1h")
             if d and d.get("verdict") in ("SAME", "DIFFERENT", "UNCERTAIN"):
                 return d["verdict"] == "SAME", json.dumps({**d, "model": haiku.MODEL}, ensure_ascii=False)
             if haiku.available():  # user 10-15: only no credit goes to same_event(); otherwise not merged
