@@ -193,3 +193,41 @@ class PostedDupStrikes:
     async def close(self) -> None:
         if self._client is not None:
             await self._client.aclose()
+
+
+class StuckVersions:
+    """url_hashes of pool candidates the publish cycle has found it cannot
+    publish (2026-10-26, from AM1ST): full text would not extract, the writer
+    said "No comment", or the repeat check retired it. The merged judge
+    (core/merged_judge.py) does not fold a later report of the same update into
+    such a row, so the story is not lost with it. Fails open: no Redis, no mark."""
+
+    def __init__(self, config: AppConfig) -> None:
+        self._prefix = config.redis.stuck_prefix
+        self._ttl = config.redis.stuck_ttl_seconds
+        self._client = (
+            redis.from_url(config.redis.url, decode_responses=True, socket_timeout=10, socket_connect_timeout=10)
+            if config.redis.url
+            else None
+        )
+
+    async def mark(self, url_hash: str, reason: str) -> None:
+        if self._client is None or not url_hash:
+            return
+        try:
+            await self._client.set(self._prefix + url_hash, reason, ex=self._ttl)
+        except Exception:
+            logger.exception("StuckVersions: mark failed for %s", url_hash)
+
+    async def reason(self, url_hash: str) -> str | None:
+        if self._client is None or not url_hash:
+            return None
+        try:
+            return await self._client.get(self._prefix + url_hash)
+        except Exception:
+            logger.exception("StuckVersions: read failed for %s -- treating as not stuck", url_hash)
+            return None
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()

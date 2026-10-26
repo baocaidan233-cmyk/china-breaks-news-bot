@@ -104,7 +104,7 @@ def _plain_text(prop: dict) -> str:
     return ""
 
 
-async def query_eligible_candidates(config: AppConfig) -> list[PublishCandidate]:
+async def query_eligible_candidates(config: AppConfig, min_score: float | None = None) -> list[PublishCandidate]:
     """Queries the candidate pool for everything the publish cycle is
     allowed to consider: not yet sent, created within the eligibility
     window, and scored high enough at ingestion time. Sorted by llm_score
@@ -140,7 +140,8 @@ async def query_eligible_candidates(config: AppConfig) -> list[PublishCandidate]
                 {"property": props.writer_rejected, "checkbox": {"does_not_equal": True}},
                 {"property": props.channel_name, "select": {"equals": notion.channel_name}},
                 {"timestamp": "created_time", "created_time": {"after": cutoff}},
-                {"property": props.llm_score, "number": {"greater_than_or_equal_to": config.publish.candidate_min_score}},
+                {"property": props.llm_score, "number": {"greater_than_or_equal_to":
+                    config.publish.candidate_min_score if min_score is None else min_score}},
             ]
         },
         "sorts": [{"property": props.llm_score, "direction": "descending"}],
@@ -321,6 +322,35 @@ async def mark_dedup_rejected(config: AppConfig, page_id: str) -> bool:
     never select this row again — and query_eligible_candidates() and
     has_unpublished_hot_candidate() already honor it."""
     return await mark_extraction_failed(config, page_id)
+
+
+async def retire_by_url(config: AppConfig, url: str) -> int:
+    """Takes the unsent row(s) for this article URL out of the pool, with the
+    same flag as the retirements above (2026-10-22, AI-24: a stronger report
+    of the same update replaced it in Notion). Returns how many were retired."""
+    notion = config.notion
+    if not notion.candidate_key or not notion.candidate_db_id:
+        return 0
+    body = {"filter": {"and": [{"property": notion.candidate_props.url, "url": {"equals": url}},
+                               {"property": notion.candidate_props.send_status, "checkbox": {"does_not_equal": True}}]}}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"https://api.notion.com/v1/databases/{notion.candidate_db_id}/query",
+                headers={"Authorization": f"Bearer {notion.candidate_key}", "Notion-Version": NOTION_VERSION,
+                         "Content-Type": "application/json"},
+                json=body,
+            )
+            resp.raise_for_status()
+            pages = [r.get("id") for r in resp.json().get("results", []) if r.get("id")]
+    except Exception:
+        logger.exception("retire_by_url: Notion query failed for %s", url)
+        return 0
+    n = 0
+    for page_id in pages:
+        if await mark_extraction_failed(config, page_id):
+            n += 1
+    return n
 
 
 async def mark_writer_rejected(config: AppConfig, page_id: str) -> bool:

@@ -1055,6 +1055,14 @@ def strip_boilerplate(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
+def event_judge_text(title: str, description: str) -> str:
+    """One article as the merged judge reads it (2026-10-26, from AM1ST): its
+    headline and up to 400 characters of its description, tags stripped. Also
+    stored on each event-store point ("text")."""
+    desc = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(description or ""))).strip()
+    return f"{(title or '').strip()}\n{desc[:400]}".strip()
+
+
 def event_identity_text(title: str, description: str) -> str:
     """Title + only the description's FIRST SENTENCE — the text every
     event-identity judgment (entity_tokens(), extract_event_frame(),

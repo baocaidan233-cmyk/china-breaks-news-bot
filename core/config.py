@@ -143,6 +143,8 @@ class RedisConfig(BaseModel):
     # PublishConfig.candidate_max_age_hours (24h ceiling) so it always
     # outlives the candidate's eligibility window and self-expires after.
     caption_ttl_seconds: int = 172800  # 48h
+    stuck_prefix: str = "chinabreaks:stuck:"  # StuckVersions (2026-10-26, from AM1ST): pool candidates the publish cycle cannot publish
+    stuck_ttl_seconds: int = 172800  # 48h
     dup_strike_prefix: str = "chinabreaks:pubdup:"  # PostedDupStrikes — how many publish cycles have called this candidate a duplicate; same TTL as the caption cache
 
 
@@ -700,6 +702,25 @@ class FactCheckConfig(BaseModel):
     timeout_seconds: float = 60.0
 
 
+class MergedJudgeConfig(BaseModel):
+    """Ingestion's merged judge (core/merged_judge.py; AM1ST AI-69 ported
+    2026-10-26, user: 你先把现在的架构移植到CB). One Haiku call per article that
+    cleared the score gate, replacing intra-batch clustering, the event-store
+    judge, classify_subtype, the event guards and cross-cycle dedup. Floors and
+    counts are AM1ST's offline-tested ones (10-16..10-20)."""
+    enabled: bool = True
+    api_key: str = ""  # JUDGE_ANTHROPIC_API_KEY, the key the judges it replaces used
+    prompt_file: str = "prompts/merged_judge_prompt.txt"
+    log_path: str = "logs/merged_judge.jsonl"
+    window_hours: int = 240      # our posts and events looked at: 10 days
+    queue_hours: int = 12        # the Notion queue: articles published in the last 12h
+    post_top_k: int = 5          # per search: top 5 by cosine and top 5 by keywords
+    post_cos_floor: float = 0.40
+    post_kw_floor: float = 0.10
+    event_top_k: int = 5
+    event_cos_floor: float = 0.40
+
+
 class IngestionConfig(BaseModel):
     """Full text at ingestion (2026-10-26, core/fulltext.py, from AM1ST AI-29).
     A summary that only repeats the headline, or is shorter than
@@ -708,6 +729,11 @@ class IngestionConfig(BaseModel):
     fulltext_dir: str = "data/fulltext"
     fulltext_retry_minutes: float = 60
     fulltext_keep_hours: float = 24
+    # The same article inside one batch by vector (2026-10-26, from AM1ST):
+    # only near-verbatim copies, between articles with a real headline (4+
+    # words) and summary. Other outlets' reports of the same event go on to the
+    # merged judge.
+    near_verbatim_cosine: float = 0.96
 
 
 class AppConfig(BaseModel):
@@ -726,6 +752,7 @@ class AppConfig(BaseModel):
     dynamic_publish: DynamicPublishConfig = Field(default_factory=DynamicPublishConfig)
     fact_check: FactCheckConfig = Field(default_factory=FactCheckConfig)
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
+    merged_judge: MergedJudgeConfig = Field(default_factory=MergedJudgeConfig)
     # Candidate freshness window — matches AM1ST's own 3h (the old n8n
     # system's global_config node value was 6h in the version this port
     # was originally based on, but the current live system tightened it
@@ -760,6 +787,7 @@ _ENV_OVERRIDES = {
     ("gettr", "user_token"): "GETTR_USER_TOKEN",
     ("fact_check", "api_key"): "ANTHROPIC_API_KEY",
     ("entity_verifier", "haiku_api_key"): "JUDGE_ANTHROPIC_API_KEY",
+    ("merged_judge", "api_key"): "JUDGE_ANTHROPIC_API_KEY",
 }
 
 

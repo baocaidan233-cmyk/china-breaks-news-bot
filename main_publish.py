@@ -129,7 +129,7 @@ from core.notion_candidates import has_unpublished_hot_candidate, mark_dedup_rej
 from core.publish_cadence import compute_dynamic_interval
 from core.notion_sources import load_rss_sources
 from core.qdrant_store import EventStore, PostedHistoryStore, ensure_collection_with_retry
-from core.redis_store import CaptionCache, PostedDupStrikes
+from core.redis_store import CaptionCache, PostedDupStrikes, StuckVersions
 from core.title_guard import title_violation
 from core.caption_guard import former_president_violation, invented_biden
 from core.language import is_english_caption
@@ -302,6 +302,14 @@ async def _fact_checked(fact_checker: FactChecker, writer: Writer, c, post: str,
     return new, second["verdict"] in ("PASS", "UNSURE")
 
 
+async def _stuck(stuck_versions, c, reason: str) -> None:
+    """Marks a candidate this cycle has given up on (2026-10-26,
+    core/redis_store.StuckVersions): ingestion's merged judge folds no later
+    report of the same update into it, so the story is not lost with it."""
+    if stuck_versions is not None:
+        await stuck_versions.mark(c.url_hash, reason)
+
+
 async def run_cycle(
     config,
     embedder: Embedder,
@@ -319,6 +327,7 @@ async def run_cycle(
     dup_strikes: PostedDupStrikes,
     dry_run: bool,
     fact_checker: FactChecker | None = None,
+    stuck_versions: StuckVersions | None = None,
 ) -> bool:
     """Returns True iff this cycle actually published something — main()'s
     loop uses this to track how recently the channel last posted, so the
@@ -362,6 +371,7 @@ async def run_cycle(
         if dry_run:
             logger.info("run_cycle: dry-run — would retire %s after %d duplicate verdicts", c.url, strikes)
             return
+        await _stuck(stuck_versions, c, "dedup")
         if await mark_dedup_rejected(config, c.page_id):
             logger.info("run_cycle: %s retired from the pool — %d duplicate verdicts", c.url, strikes)
 
@@ -440,6 +450,7 @@ async def run_cycle(
                 # succeeds on a later retry. query_eligible_candidates()
                 # excludes extraction_failed=true so it's never re-selected.
                 await mark_extraction_failed(config, c.page_id)
+                await _stuck(stuck_versions, c, "extraction")
                 continue
             c.content = text
 
@@ -450,6 +461,7 @@ async def run_cycle(
                 logger.info("run_cycle: %s dropped — %s", c.url, opinion)
                 if not dry_run:
                     await mark_writer_rejected(config, c.page_id)
+                    await _stuck(stuck_versions, c, "rejected")
                 continue
 
             # First-report time (2026-10-10, agents/timeliness_check.py, from
@@ -466,6 +478,7 @@ async def run_cycle(
                     logger.info("run_cycle: %s dropped — not news any more: %s", c.url, fresh["reason"])
                     if not dry_run:
                         await mark_writer_rejected(config, c.page_id)
+                        await _stuck(stuck_versions, c, "rejected")
                     continue
 
             # Staleness classification (2026-09-06, ported from AM1ST) — a
@@ -576,6 +589,7 @@ async def run_cycle(
                             if post_content is None:
                                 if not dry_run:
                                     await mark_writer_rejected(config, c.page_id)
+                                    await _stuck(stuck_versions, c, "rejected")
                                 continue
                         await caption_cache.set(c.url_hash, post_content, checked=checked)
             else:
@@ -594,6 +608,7 @@ async def run_cycle(
                         await caption_cache.delete(c.url_hash)
                         if not dry_run:
                             await mark_writer_rejected(config, c.page_id)
+                            await _stuck(stuck_versions, c, "rejected")
                         continue
                     if new_content != post_content or checked:
                         post_content = new_content
@@ -605,6 +620,7 @@ async def run_cycle(
                 await caption_cache.delete(c.url_hash)
                 if not dry_run:
                     await mark_writer_rejected(config, c.page_id)
+                    await _stuck(stuck_versions, c, "rejected")
                 continue
 
             # Time words (2026-10-11, core/time_words.py, from DailyNews; user: 时效性
@@ -676,6 +692,7 @@ async def run_cycle(
                 # Pakistan-missile-system story hit this 17 times over
                 # ~10 hours before finally aging out).
                 await mark_writer_rejected(config, c.page_id)
+                await _stuck(stuck_versions, c, "rejected")
                 continue
             # Link appended after generation, not counted against the writer's
             # word cap — the AI's own output stays pure caption text. A card
@@ -804,6 +821,7 @@ async def main() -> None:
     fact_checker = FactChecker(config)
     staleness_checker = StalenessChecker(config)
     caption_cache = CaptionCache(config)
+    stuck_versions = StuckVersions(config)
     dup_strikes = PostedDupStrikes(config)
     await ensure_collection_with_retry(posted_store, "chinabreaks_posting_news_embedding")
     await ensure_collection_with_retry(event_store, "chinabreaks_events")
@@ -818,7 +836,8 @@ async def main() -> None:
             published_this_cycle = False
             try:
                 published_this_cycle = await asyncio.wait_for(
-                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, headline_writer, extractor, writer, staleness_checker, caption_cache, dup_strikes, dry_run, fact_checker),
+                    run_cycle(config, embedder, ranker, posted_store, event_store, event_verifier, publisher, uploader, headline_writer, extractor, writer, staleness_checker, caption_cache, dup_strikes, dry_run, fact_checker,
+                              stuck_versions),
                     timeout=config.cycle_timeout_seconds,
                 )
             except asyncio.TimeoutError:
