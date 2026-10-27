@@ -68,7 +68,8 @@ redis:
 openai:
   chat_model: "gpt-4o-mini"  # every OpenAI-backed call except the Writer — Scorer, PriorityRanker, EventVerifier, etc.
   # Caidan, 2026-10-11: 写稿换5.4mini，推理到最少. Writer only; see core/config.py.
-  writer_model: "gpt-5.4-mini"
+  # 2026-10-27 (user: luna写的好很多啊): gpt-6-luna with the v4 prompt, see prompts/WRITER_CHANGELOG.md step 3.
+  writer_model: "gpt-6-luna"
   writer_reasoning_effort: "none"
   embedding_model: "text-embedding-3-small"
   scoring_prompt_file: "prompts/scoring_prompt.txt"

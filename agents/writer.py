@@ -24,6 +24,7 @@ _MARKDOWN_RE = re.compile(r"[*_`#]+")
 # sometimes copies the "> " — 25 of 835 published posts went out with a
 # literal "&gt;" at the start of a paragraph.
 _QUOTE_MARK_RE = re.compile(r"^[ \t]*>[ \t]?", re.M)
+_TRAILING_NO_COMMENT_RE = re.compile(r"(?:[.!?\n]|^)\s*no comment$")
 _NUMBER_RE = re.compile(r"\d[\d,.]*\d|\d")
 # Sentence end: . ! ? (optionally closing quote/bracket), whitespace, then an
 # uppercase letter or opening quote. Abbreviations are checked separately.
@@ -70,9 +71,9 @@ class Writer:
     def __init__(self, config: AppConfig) -> None:
         self._client = create_openai_client(config)
         self._model = config.openai.writer_model
-        # The gpt-5 family takes a reasoning effort; gpt-4o-mini rejects one.
+        # The gpt-5 and gpt-6 families take a reasoning effort; gpt-4o-mini rejects one.
         self._extra = ({"reasoning_effort": config.openai.writer_reasoning_effort}
-                       if self._model.startswith("gpt-5") else {})
+                       if not self._model.startswith("gpt-4") else {})
         self._system_prompt = Path(config.openai.content_gen_prompt_file).read_text(encoding="utf-8")
         self._system_sha = hashlib.sha256(self._system_prompt.encode("utf-8")).hexdigest()[:12]
         self._hook_prompt = (Path(config.openai.hook_rewrite_prompt_file).read_text(encoding="utf-8")
@@ -236,5 +237,8 @@ class Writer:
 
     @staticmethod
     def is_no_comment(text: str) -> bool:
+        """Also a refusal when the model explains itself first and ends on it
+        (10-27, gpt-6-luna test: "The article is about Southeast Asia, not
+        China. No comment"), which the exact match let through as a post."""
         cleaned = _MARKDOWN_RE.sub("", text).strip().rstrip(".!").strip().lower()
-        return cleaned == NO_COMMENT.lower()
+        return cleaned == NO_COMMENT.lower() or bool(_TRAILING_NO_COMMENT_RE.search(cleaned))
