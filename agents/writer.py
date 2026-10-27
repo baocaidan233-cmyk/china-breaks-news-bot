@@ -9,6 +9,7 @@ from pathlib import Path
 from core.config import AppConfig
 from core.openai_client import create_openai_client
 from core.date_context import date_block
+from core.caption_meta import drop_meta_clauses
 
 NO_COMMENT = "No comment"
 
@@ -115,7 +116,7 @@ class Writer:
             ],
             **self._extra,
         )
-        post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
+        post = drop_meta_clauses(_QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()) or NO_COMMENT
         opening = None
         if self._hook_prompt and not self.is_no_comment(post):
             post, opening = await self._rewrite_opening(title, article, post)
@@ -144,7 +145,7 @@ class Writer:
             ],
             **self._extra,
         )
-        post = _QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()
+        post = drop_meta_clauses(_QUOTE_MARK_RE.sub("", (resp.choices[0].message.content or "")).strip()) or NO_COMMENT
         self._log_call(title, article, context, is_opinion, published_at, post, {"rewrite_of": draft, "problems": problems})
         return post
 
