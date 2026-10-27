@@ -170,6 +170,10 @@ class OpenAIConfig(BaseModel):
     writer_reasoning_effort: str = "none"
     embedding_model: str = "text-embedding-3-small"
     scoring_prompt_file: str = "prompts/scoring_prompt.txt"
+    # 2026-10-27 (user: 打分那一步加一行日志): one line per scoring call with
+    # the exact user message sent and the score it got, so another model can
+    # be replayed on the same inputs (gpt-6-luna test) without re-running this one.
+    scorer_calls_log_path: str = "logs/scorer_calls.jsonl"
     content_gen_prompt_file: str = "prompts/content_gen_prompt.txt"
     # 2026-10-03: a second, small call rewrites only the post's opening line
     # (agents/writer.py's _rewrite_opening). Adding the same instructions to
