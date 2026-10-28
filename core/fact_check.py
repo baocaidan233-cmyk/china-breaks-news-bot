@@ -60,6 +60,53 @@ def _new_note(text: str, post: str):
     had = post.lower()
     return next((m for m in _NOT_A_POST.finditer(text) if m.group(0).lower() not in had), None)
 
+
+# Numbered sentences for the checker and the correction (2026-10-28, AI-86,
+# from DailyNews c06f1fd; user: 还是要校对，我们的稿子得写对). A closing quote
+# or bracket stays with its sentence.
+_SENTENCE_END = re.compile(r"(?<=[.!?。！？；][\"”’)])\s+|(?<=[.!?])\s+|(?<=[。！？；])|\n+")
+
+# Not a sentence end: "U.S.", "a.m.", "Oct.", a title before a name ("Rear
+# Adm. Ali Azmaei") and, on China Breaks, a middle initial ("Philip J. Pierre"
+# was cut into "Saint Lucian Prime Minister Philip J." and failed as unfinished).
+_NO_END = re.compile(r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Gen|Lt|Col|Maj|Brig|Adm|Sgt|Capt|Cmdr|Gov|Sen|Rep|Pres|Mr|Mrs|Ms"
+                     r"|Dr|Prof|Rev|Sec|Amb|St|Mt|Ft|Jr|Sr|No|Rear|Vice"
+                     r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.|(?:^|\s)[A-Z]\.)$")
+
+# A piece with no word in it (a line of flag emoji) belongs to the sentence
+# before it; numbered on its own it failed as an unfinished sentence.
+_NO_WORDS = re.compile(r"^[^\w]*$")
+
+
+def _sentences(text: str) -> list[str]:
+    parts: list[str] = []
+    for piece in (s.strip() for s in _SENTENCE_END.split(text or "") if s and s.strip()):
+        if parts and (_NO_END.search(parts[-1]) or _NO_WORDS.match(piece)):
+            parts[-1] = f"{parts[-1]} {piece}"
+        else:
+            parts.append(piece)
+    return parts
+
+
+def _numbered(text: str, prefix: str) -> str:
+    """text one sentence per line, as S1:, S2: ... (or P1: ...)."""
+    return "\n".join(f"{prefix}{i + 1}: {s}" for i, s in enumerate(_sentences(text)))
+
+
+def _keep_layout(post: str, text: str) -> str:
+    """text in the draft's layout: one paragraph, or two with the break after as
+    many sentences as the draft's first paragraph has. The correction reads the
+    post as P1, P2 ... and cannot see the break: offline 10-28, 11 of 14 came
+    back in one, three or four paragraphs."""
+    paras = [p for p in re.split(r"\n\s*\n", post.strip()) if p.strip()]
+    flat = " ".join(" ".join(p.split()) for p in re.split(r"\n\s*\n", text.strip()) if p.strip())
+    if len(paras) != 2:
+        return flat
+    n, sents = len(_sentences(paras[0])), _sentences(flat)
+    if len(sents) <= n:
+        return flat
+    return " ".join(sents[:n]) + "\n\n" + " ".join(sents[n:])
+
 _SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["claims", "verdict"],
     "properties": {
@@ -125,7 +172,7 @@ class FactChecker:
         if not self.enabled:
             return {"verdict": "OFF", "problems": []}
         user = (f"TODAY: {datetime.now(timezone.utc).date().isoformat()}\n\nARTICLE TITLE: {title}"
-                f"\n\nARTICLE:\n{article}\n\nPOST:\n{checked}")
+                f"\n\nARTICLE:\n{_numbered(article, 'S')}\n\nPOST:\n{_numbered(checked, 'P')}")
         verdict, problems, claims, usage, model = "ERROR", [], [], None, self._model
         parsed = None
         try:
@@ -174,8 +221,8 @@ class FactChecker:
         for the writer model's rewrites."""
         if not self.enabled or not problems:
             return None
-        user = (f"ARTICLE TITLE: {title}\n\nARTICLE:\n{article}\n\nPOST:\n{post}"
-                "\n\nPROBLEMS:\n" + "\n".join(f"- {p}" for p in problems))
+        user = ("ARTICLE:\n" + _numbered(f"{title}\n{article}", "S") + "\n\nPOST:\n" + _numbered(post, "P")
+                + "\n\nPROBLEMS:\n" + "\n".join(f"- {p}" for p in problems))
         text = None
         try:
             resp = await self._client.messages.create(
@@ -206,9 +253,13 @@ class FactChecker:
             except Exception as e:
                 logger.warning("FactChecker: %s fix failed too (%s)", self._fallback_model, type(e).__name__)
                 return None
-        # Paragraphs kept, each one's whitespace tidied; "exports,." after a cut.
+        # Paragraphs kept, each one's whitespace tidied; P1/P2 labels the
+        # correction copied from its input dropped; "exports,." after a cut;
+        # the draft's paragraph layout put back.
         text = "\n\n".join(" ".join(p.split()) for p in re.split(r"\n\s*\n", text.strip()) if p.strip())
+        text = re.sub(r"(^|\s)P\d{1,2}:\s*", r"\1", text).strip()
         text = re.sub(r"\s*,\s*([.!?])", r"\1", text)
+        text = _keep_layout(post, text)
         note = _new_note(text, post)
         if not text or " ".join(text.split()) == " ".join(post.split()) or note:
             logger.warning("FactChecker: fix unusable (%s): %r",
