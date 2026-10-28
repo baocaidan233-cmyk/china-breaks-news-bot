@@ -101,10 +101,32 @@ def _dated_issue(title: str) -> bool:
     return False
 
 
+# "This day in history" lists (owner, 2026-10-28: 历史上的今天，直接从标题就拦住，
+# 不需要进打分). A list of anniversaries is never news, and one China item in it
+# was enough for gpt-6-luna to score AP's list 7. AP titles it with nothing but
+# the date ("THURSDAY, Oct. 29, 2026"), which _DATED_TITLE misses because the
+# month is a word. On this channel's pre-score log since 09-30 (278k titles):
+# 126 hits -- AP's dateline lists and its "On This Day" pages, Kalenderblatt,
+# Efemérides -- every one sent to scoring, none published. A bare "efeméride"
+# is not a pattern: "Cuál es la forma correcta de nombrar a la efeméride" is a
+# story about what to call a holiday.
+_HISTORY_DATELINE = re.compile(
+    r"^\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}\s*$",
+    re.IGNORECASE)
+_HISTORY_TITLE = re.compile(
+    r"\b(today|this day|on this day)\s+in\s+history\b|\bon this day\b|\bthis week in history\b"
+    r"|历史上的今天|歷史上的今天|今日历史|今日歷史|今日は何の日|오늘의\s?역사"
+    r"|этот день в истории|\bkalenderblatt\b|\bwas geschah am\b"
+    r"|^\s*efem[ée]rides\b|\bun d[ií]a como hoy\b|\bhoy en la historia\b",
+    re.IGNORECASE)
+
+
 def roundup_rule(title: str, url: str) -> str | None:
     """The name of the rule this candidate breaks, or None."""
     text = title or ""
     lowered = text.lower()
+    if _HISTORY_DATELINE.search(text) or _HISTORY_TITLE.search(text):
+        return "this_day_in_history"
     if _dated_issue(text):
         return "dated_issue"
     if any(name in lowered for name in _SINGLE_SUBJECT_COLUMNS):

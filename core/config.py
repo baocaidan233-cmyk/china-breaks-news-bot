@@ -174,6 +174,12 @@ class OpenAIConfig(BaseModel):
     # the exact user message sent and the score it got, so another model can
     # be replayed on the same inputs (gpt-6-luna test) without re-running this one.
     scorer_calls_log_path: str = "logs/scorer_calls.jsonl"
+    # 2026-10-28 (AI-105, user: 现在这版可以，注意用缓存价格): gpt-4o-mini is
+    # shut down on 2027-01-14. The Scorer asks scorer_model first, at
+    # scorer_reasoning_effort, on the standard tier (cached input is already
+    # $0.01/M, so no Flex); a failed call falls to chat_model. Empty = chat_model only.
+    scorer_model: str = ""
+    scorer_reasoning_effort: str = "low"
     content_gen_prompt_file: str = "prompts/content_gen_prompt.txt"
     # 2026-10-03: a second, small call rewrites only the post's opening line
     # (agents/writer.py's _rewrite_opening). Adding the same instructions to

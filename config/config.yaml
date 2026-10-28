@@ -72,7 +72,12 @@ openai:
   writer_model: "gpt-6-luna"
   writer_reasoning_effort: "low"  # 2026-10-27 luna 推理档 none/low/medium 盲评，四个频道都是 low 毛病最少（用户同意）
   embedding_model: "text-embedding-3-small"
-  scoring_prompt_file: "prompts/scoring_prompt.txt"
+  # 2026-10-28 AI-105（用户：现在这版可以，注意用缓存价格）：打分换 gpt-6-luna 低推理、标准价（不用 Flex）。
+  # 提示词第五版只改了为 4o-mini 写的放宽规则，五批测试和生产一致 91-98%、已发帖 42/42。
+  # 回滚：scorer_model 留空、scoring_prompt_file 改回 prompts/scoring_prompt.txt。
+  scorer_model: "gpt-6-luna"
+  scorer_reasoning_effort: "low"
+  scoring_prompt_file: "prompts/scoring_prompt_luna.txt"
   content_gen_prompt_file: "prompts/content_gen_prompt.txt"
   hook_rewrite: false  # 2026-10-11 用户叫停：不授权第二次调用重写开头，帖子直接用写手原稿——见 prompts/WRITER_CHANGELOG.md
   hook_rewrite_prompt_file: "prompts/hook_rewrite_prompt.txt"
