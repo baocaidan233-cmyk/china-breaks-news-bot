@@ -161,6 +161,11 @@ class OpenAIConfig(BaseModel):
     # one, not re-tested: nothing in this codebase should reference
     # gpt-5-nano without a fresh, judgment-quality-focused live test first.
     chat_model: str = "gpt-4o-mini"
+    # 2026-10-29 (user: 所有回退、fallback 到 5.4mini、4o mini 的情况，全部改成 luna，
+    # 以后新闻频道 open ai 只用 luna): the model every Haiku step and the scorer fall
+    # back to (core/fallback.py). chat_model stays the primary for the steps still on it.
+    fallback_model: str = "gpt-6-luna"
+    fallback_reasoning_effort: str = "low"
     # Writer only (Caidan, 2026-10-11: 写稿换5.4mini，推理到最少). gpt-4o-mini's
     # training stops in 2023; on 2026-10-11 it turned Market Watcher's TASS
     # "the US administration" into "the Biden administration". "none" is the

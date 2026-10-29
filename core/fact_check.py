@@ -33,6 +33,7 @@ from pathlib import Path
 import anthropic
 
 from core.config import AppConfig
+from core.fallback import fallback_params
 from core.openai_client import create_openai_client
 from core.claude_usage import log_usage
 
@@ -153,7 +154,8 @@ class FactChecker:
         # gpt-4o-mini, for when Haiku is broken (2026-10-16, AI-89). Without an
         # OpenAI key there is simply no fallback; nothing else changes.
         self._timeout = fc.timeout_seconds
-        self._fallback_model = config.openai.chat_model
+        self._fallback_model = config.openai.fallback_model
+        self._fb = fallback_params(config, 4000)
         self._openai = None
         if self.enabled and config.openai.api_key:
             try:
@@ -191,7 +193,7 @@ class FactChecker:
             model, usage = self._fallback_model, None
             try:
                 resp = await self._openai.chat.completions.create(
-                    model=self._fallback_model, max_tokens=4000, timeout=self._timeout,
+                    **self._fb, timeout=self._timeout,
                     messages=[{"role": "system", "content": self._system}, {"role": "user", "content": user}],
                     response_format={"type": "json_schema",
                                      "json_schema": {"name": "fact_check", "schema": _SCHEMA, "strict": True}})
@@ -243,7 +245,7 @@ class FactChecker:
                 return None
             try:
                 resp = await self._openai.chat.completions.create(
-                    model=self._fallback_model, max_tokens=4000, timeout=self._timeout,
+                    **self._fb, timeout=self._timeout,
                     messages=[{"role": "system", "content": self._fix_system}, {"role": "user", "content": user}])
                 msg = resp.choices[0].message
                 if getattr(msg, "refusal", None):

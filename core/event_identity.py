@@ -1755,6 +1755,8 @@ class EventVerifier:
     def __init__(self, config: AppConfig) -> None:
         self._client = create_openai_client(config)
         self._model = config.openai.chat_model
+        self._fallback_model = config.openai.fallback_model
+        self._fallback_effort = config.openai.fallback_reasoning_effort
         self._same_event_prompt = Path(config.entity_verifier.same_event_prompt_file).read_text(encoding="utf-8")
         ev = config.entity_verifier
         self._same_event_store_prompt = Path(ev.same_event_store_prompt_file).read_text(encoding="utf-8")
@@ -1762,7 +1764,7 @@ class EventVerifier:
         self._subtype_prompt = Path(config.entity_verifier.update_subtype_prompt_file).read_text(encoding="utf-8")
         self._related_event_prompt = Path(config.entity_verifier.related_event_prompt_file).read_text(encoding="utf-8")
 
-    async def _ask(self, system_content: str, user_content: str, max_tokens: int) -> str:
+    async def _ask(self, system_content: str, user_content: str, max_tokens: int, model: str = "") -> str:
         """2026-09-07: split into a `system` message (the static prompt
         file content — role, rules, worked examples, output format; always
         byte-identical for a given call site) and a `user` message (only
@@ -1783,11 +1785,15 @@ class EventVerifier:
         etc.'s own docstrings — they no longer contain {a}/{b}
         placeholders; TEXT A/TEXT B are built fresh per call in the user
         message here instead."""
-        kwargs = dict(model=self._model, messages=[
+        model = model or self._model
+        kwargs = dict(model=model, messages=[
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content},
         ])
-        if self._model.startswith("gpt-5"):
+        if model.startswith("gpt-6"):  # the fallback model since 2026-10-29
+            kwargs["max_completion_tokens"] = max_tokens + 3000
+            kwargs["reasoning_effort"] = self._fallback_effort
+        elif model.startswith("gpt-5"):
             kwargs["max_completion_tokens"] = max_tokens
             kwargs["reasoning_effort"] = "minimal"
         else:
@@ -1803,8 +1809,8 @@ class EventVerifier:
                 return line.split(":", 1)[1].strip()
         return ""
 
-    async def same_event(self, text_a: str, text_b: str) -> tuple[bool, str]:
-        raw = await self._ask(self._same_event_prompt, f"TEXT A:\n{text_a}\n\nTEXT B:\n{text_b}", max_tokens=80)
+    async def same_event(self, text_a: str, text_b: str, model: str = "") -> tuple[bool, str]:
+        raw = await self._ask(self._same_event_prompt, f"TEXT A:\n{text_a}\n\nTEXT B:\n{text_b}", max_tokens=80, model=model)
         verdict = self._extract_field(raw, "VERDICT").upper()
         return verdict.startswith("SAME"), raw
 
@@ -1829,7 +1835,7 @@ class EventVerifier:
                 return d["verdict"] == "SAME", json.dumps({**d, "model": haiku.MODEL}, ensure_ascii=False)
             if haiku.available():  # user 10-15: only no credit goes to same_event(); otherwise not merged
                 return False, json.dumps({"error": "Haiku could not answer", "model": haiku.MODEL})
-        return await self.same_event(text_a, text_b)
+        return await self.same_event(text_a, text_b, model=self._fallback_model)
 
     async def classify_subtype(self, text_a: str, text_b: str) -> tuple[str, str]:
         raw = await self._ask(self._subtype_prompt, f"TEXT A:\n{text_a}\n\nTEXT B:\n{text_b}", max_tokens=60)

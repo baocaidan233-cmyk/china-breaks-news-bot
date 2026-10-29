@@ -79,6 +79,7 @@ class Scorer:
         self._system_prompt = Path(config.openai.scoring_prompt_file).read_text(encoding="utf-8")
         self._scorer_model = config.openai.scorer_model or self._model
         self._scorer_effort = config.openai.scorer_reasoning_effort
+        self._fallback_model = config.openai.fallback_model
         self._calls_log = Path(config.openai.scorer_calls_log_path)
         self._prompt_sha = hashlib.sha256(self._system_prompt.encode("utf-8")).hexdigest()[:12]
 
@@ -168,16 +169,16 @@ class Scorer:
             f"{trending_block}"
         )
         # scorer_model first (2026-10-28, AI-105); a call that fails outright
-        # is asked once of chat_model instead.
+        # is asked once of openai.fallback_model instead -- gpt-6-luna since
+        # 2026-10-29 (user: 所有回退全部改成 luna), so with luna scoring that is
+        # one more try on luna.
         model = self._scorer_model
         try:
             raw = await self._call(user_message, model)
         except Exception as e:
-            if model == self._model:
-                raise
             logger.warning("Scorer: %s failed for %s (%s: %s) -- asking %s", model, candidate.url,
-                           type(e).__name__, str(e)[:200], self._model)
-            model = self._model
+                           type(e).__name__, str(e)[:200], self._fallback_model)
+            model = self._fallback_model
             raw = await self._call(user_message, model)
         retried = False
         try:
