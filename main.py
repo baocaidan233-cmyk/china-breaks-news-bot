@@ -71,6 +71,7 @@ from agents.og_metadata import fetch_link_preview
 from agents.rss_fetcher import fetch_all
 from agents.scorer import Scorer
 from agents.trending import fetch_trending_headlines
+import core.haiku_budget  # noqa: F401 -- Haiku daily budget across the VM's bots (user 10-30), see the module
 from core import fulltext
 from core.config import load_config
 from core.event_identity import EventVerifier, HubIndex, entity_tokens_with_fallback, event_identity_text, event_judge_text, extract_event_frame, has_china_signal, is_offtopic_url_section, log_decision

@@ -115,6 +115,7 @@ from agents.media_uploader import MediaUploader
 from agents.og_metadata import fetch_link_preview
 from agents.preview_gate import preview_fault
 from agents.posted_dedup_checker import content_for_embedding, find_publishable
+import core.haiku_budget  # noqa: F401 -- Haiku daily budget across the VM's bots (user 10-30), see the module
 from core.same_news import lead_paragraph
 from agents.priority_ranker import PriorityRanker, log_publish_outcome
 from agents.staleness_checker import StalenessChecker
