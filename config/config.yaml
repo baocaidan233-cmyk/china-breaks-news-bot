@@ -75,9 +75,12 @@ openai:
   # 2026-10-28 AI-105（用户：现在这版可以，注意用缓存价格）：打分换 gpt-6-luna 低推理、标准价（不用 Flex）。
   # 提示词第五版只改了为 4o-mini 写的放宽规则，五批测试和生产一致 91-98%、已发帖 42/42。
   # 回滚：scorer_model 留空、scoring_prompt_file 改回 prompts/scoring_prompt.txt。
-  scorer_model: "gpt-6-luna"
+  # 2026-10-30 回退（用户：「am和CB现在都回退，然后分析下现在是什么问题」）：10-29 每帖平均互动 16，
+  # 前两周每天 26-32。原因待查，见 AI-105 评论。第五版：scorer_model "gpt-6-luna"、
+  # scoring_prompt_file "prompts/scoring_prompt_luna.txt"。
+  scorer_model: ""
   scorer_reasoning_effort: "low"
-  scoring_prompt_file: "prompts/scoring_prompt_luna.txt"
+  scoring_prompt_file: "prompts/scoring_prompt.txt"
   content_gen_prompt_file: "prompts/content_gen_prompt.txt"
   hook_rewrite: false  # 2026-10-11 用户叫停：不授权第二次调用重写开头，帖子直接用写手原稿——见 prompts/WRITER_CHANGELOG.md
   hook_rewrite_prompt_file: "prompts/hook_rewrite_prompt.txt"
