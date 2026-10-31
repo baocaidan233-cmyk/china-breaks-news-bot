@@ -81,6 +81,7 @@ from core.notion_candidates import write_candidate
 from core.notion_sources import load_rss_sources
 from core.prescore import PreScorer, log_prescore_decision
 from core.roundup import roundup_rule, newsletter_rule
+from core.url_blocklist import blocklisted
 from core.opinion import opinion_rule
 from core.merged_judge import MergedJudge, log_verdict
 from core.qdrant_store import EventStore, PostedHistoryStore, QdrantStore, ensure_collection_with_retry
@@ -177,6 +178,9 @@ async def _fetch_full_text(config, candidates, sources, retried: set[str]):
                 logger.exception("run_cycle: extraction failed for %s", c.url)
                 text = None
         if not text:
+            if c.url in extractor.blocklisted:   # resolved to a blocklisted section: no second try
+                how["url_blocklist"] += 1
+                return
             if c.url_hash in retried:
                 how["given_up"] += 1
                 logger.info("run_cycle: %s dropped — no article text on the second try (%s)", c.url, (c.title or "")[:120])
@@ -320,9 +324,15 @@ async def run_cycle(
     scoring_pool = []
     offtopic_url_count = 0
     prefiltered_count = 0
+    blocklist_count = 0
     for c in survivors:
         if is_offtopic_url_section(c.url):
             offtopic_url_count += 1
+            continue
+        # 2026-10-31 (core/url_blocklist.py): a Google News link is checked
+        # again by the extractor once it resolves to the publisher.
+        if blocklisted(c.url):
+            blocklist_count += 1
             continue
         candidate_text = event_identity_text(c.title, c.description)
         if not has_china_signal(candidate_text):
@@ -336,6 +346,8 @@ async def run_cycle(
         scoring_pool.append(c)
     if offtopic_url_count:
         logger.info("run_cycle: %d/%d dropped — off-mission URL section (entertainment/lifestyle/etc.)", offtopic_url_count, len(survivors))
+    if blocklist_count:
+        logger.info("run_cycle: %d/%d dropped — URL on the blocklist", blocklist_count, len(survivors))
     if prefiltered_count:
         logger.info(
             "run_cycle: %d/%d skipped Scorer LLM call (no China/CCP signal, pre-filter)",

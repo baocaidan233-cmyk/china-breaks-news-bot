@@ -16,6 +16,7 @@ import trafilatura
 
 from core.alerts import AlertNotifier
 from core.config import AppConfig
+from core.url_blocklist import blocklisted
 from core.models import RssSource
 from core.render_client import render as render_service_render
 
@@ -287,6 +288,9 @@ class Extractor:
     def __init__(self, config: AppConfig, alerts: AlertNotifier) -> None:
         self._config = config
         self._alerts = alerts
+        # Google News links that resolved to a blocklisted section (2026-10-31,
+        # core/url_blocklist.py); the caller drops them without a retry.
+        self.blocklisted: dict[str, str] = {}
 
     async def _fail(self, url: str, source: RssSource | None, reason: str, alert_message: str | None = None) -> None:
         logger.warning("Extractor: %s for %s", reason, url)
@@ -342,6 +346,11 @@ class Extractor:
                 # where a Google News item is still news.google.com.
                 if any(host == d or host.endswith("." + d) for d in self._config.blocked_domains):
                     logger.info("Extractor: %s resolves to blocked domain %s — dropping", url, host)
+                    return None
+                entry = blocklisted(real)
+                if entry:
+                    logger.info("Extractor: %s resolves to %s — url_blocklist %s, dropping", url, real, entry)
+                    self.blocklisted[url] = entry
                     return None
                 logger.info("Extractor: %s resolves to %s", url, real)
                 url = real

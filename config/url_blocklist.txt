@@ -1,0 +1,104 @@
+# 不送去打分的网站和版面（core/url_blocklist.py，2026-10-31 用户定）。
+# 由本频道 10-01 以来的日志生成：同一网站或版面送去打分 >=10 次、从没过 6 分、没进过候选池、没发过。
+# 每行：网站，或 网站/版面（含其下所有子版面），或 */版面名（任何网站上叫这个名字的版面）。
+# 行尾 # 后面是 10-01 以来送去打分的次数。删掉一行即放行。
+
+# 用户点名的版面（本频道数据里同样从没过 6 分）
+*/fashion
+*/leben-wissen
+
+# 按数据统计
+news.sky.com    # 169
+oglobo.globo.com/blogs/lauro-jardim    # 127
+garuda.tv    # 110
+aljazeera.com/video    # 95
+perfil.com/noticias/internacional    # 95
+elcomercio.pe/mundo/latinoamerica    # 90
+oglobo.globo.com/blogs/pulso    # 89
+wiadomosci.gazeta.pl    # 87
+bbc.co.uk    # 57
+oglobo.globo.com/blogs/miriam-leitao    # 49
+theatlantic.com    # 46
+oglobo.globo.com/blogs/ancelmo-gois    # 45
+oglobo.globo.com/blogs/bela-megale    # 44
+thehill.com/policy/international    # 38
+aif.ru/society/army    # 37
+oglobo.globo.com/blogs/malu-gaspar    # 37
+smh.com.au/politics    # 36
+aftenposten.no/norge    # 35
+gulfnews.com/world/americas    # 34
+adevarul.ro/stiri-externe/europa    # 32
+youtube.com    # 31
+gbnews.com/politics    # 30
+smh.com.au/national    # 29
+elcomercio.pe/mundo/europa    # 28
+arabnews.com/saudi-arabia    # 26
+sports.inquirer.net    # 25
+oglobo.globo.com/economia/fabio-graner    # 24
+oglobo.globo.com/opiniao    # 24
+aif.ru/health    # 23
+scmp.com/news/world/russia-central-asia    # 23
+oglobo.globo.com/brasil    # 22
+theguardian.com/australia-news    # 22
+breitbart.com/politics    # 21
+independent.co.uk/news/world/middle-east    # 21
+washingtonpost.com/world    # 21
+apnews.com    # 20
+larepublica.pe/politica    # 20
+perfil.com/noticias/modo-fontevecchia    # 19
+perfil.com/politica    # 19
+scmp.com/news/asia/east-asia    # 19
+theguardian.com/uk-news    # 19
+brasildefato.com.br/podcast    # 18
+defensenews.com    # 18
+newyorker.com/news    # 18
+ukrinform.ua/rubric-ato    # 18
+energia.rp.pl    # 17
+news.zerkalo.io/life    # 17
+politanalitika.ru    # 17
+scmp.com/news/hong-kong/education    # 17
+dailymail.com/tvshowbiz    # 16
+elcomercio.pe/opinion    # 16
+lanacion.com.ar/espectaculos    # 16
+autonews.gasgoo.com    # 15
+bild.de/leben-wissen    # 15
+news.zerkalo.io/europe    # 15
+perfil.com/modo-fontevecchia    # 15
+adevarul.ro/stiri-interne    # 14
+bild.de/news    # 14
+breitbart.com/middle-east    # 14
+cbsnews.com    # 14
+economist.com/britain    # 14
+perfil.com/noticias/cordoba    # 14
+scmp.com/news/world/united-states-canada    # 14
+smh.com.au/world/europe    # 14
+theguardian.com/news    # 14
+aif.ru/society/people    # 13
+github.com    # 13
+nypost.com/video    # 13
+thehill.com/homenews/house    # 13
+news.zerkalo.io/cellar    # 12
+theguardian.com/technology    # 12
+thehill.com/policy/defense    # 12
+thehill.com/policy/energy-environment    # 12
+zerohedge.com/military    # 12
+aif.ru/society/law    # 11
+arstechnica.com/health    # 11
+lenta.ru/brief    # 11
+oglobo.globo.com/blogs/bernardo-mello-franco    # 11
+scmp.com/business/companies    # 11
+smh.com.au/goodfood    # 11
+taipeitimes.com/news/lang    # 11
+ukrinform.ua/rubric-diaspora    # 11
+ukrinform.ua/rubric-society    # 11
+aif.ru/travel    # 10
+arabnews.com/energy    # 10
+nation.africa/kenya/news/politics    # 10
+perfil.com/internacional    # 10
+rp.pl/plus-minus    # 10
+rp.pl/sady-i-trybunaly    # 10
+sukces.rp.pl    # 10
+theguardian.com/artanddesign    # 10
+theguardian.com/film    # 10
+theguardian.com/society    # 10
+ukrinform.ua/rubric-culture    # 10
